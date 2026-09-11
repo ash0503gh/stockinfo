@@ -70,10 +70,18 @@
             </div>
           </div>
           <div class="stage-desc" id="stageDesc"></div>
+          <div class="stage-ema-note" id="stageEmaNote"></div>
           <canvas id="stageChart" height="200"></canvas>
           <div class="stage-legend">
-            <span><i class="legend-swatch legend-price"></i>Price</span>
-            <span><i class="legend-swatch legend-ma"></i>30-week average</span>
+            <span class="legend-fixed"><i class="legend-swatch legend-price"></i>Price</span>
+            <label class="legend-toggle">
+              <input type="checkbox" id="smaToggle" checked />
+              <i class="legend-swatch legend-ma"></i>30-week SMA
+            </label>
+            <label class="legend-toggle">
+              <input type="checkbox" id="emaToggle" checked />
+              <i class="legend-swatch legend-ema"></i>Yearly (52-week) EMA
+            </label>
           </div>
         </div>
 
