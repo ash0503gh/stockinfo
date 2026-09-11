@@ -19,6 +19,8 @@
   --red-dim: rgba(239,68,68,0.15);
   --amber: #F59E0B;
   --amber-dim: rgba(245,158,11,0.15);
+  --gray: #94A3B8;
+  --gray-dim: rgba(148,163,184,0.15);
 
   --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --mono: 'JetBrains Mono', 'SF Mono', monospace;
@@ -162,7 +164,6 @@ h1 {
   color: var(--text-muted);
   pointer-events: none;
 }
-
 
 .search-dropdown {
   position: absolute;
@@ -315,6 +316,16 @@ h1 {
   font-family: var(--mono);
 }
 
+.cache-indicator {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid var(--border);
+}
+
 .loading-pulse {
   padding: 40px;
   text-align: center;
@@ -405,6 +416,59 @@ h1 {
   box-shadow: var(--shadow);
   z-index: 10;
   white-space: nowrap;
+}
+
+/* ── Market Stage card ───────────────────────────────────────────── */
+.stage-badge {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--mono);
+  padding: 3px 10px;
+  border-radius: 12px;
+  letter-spacing: 0.02em;
+}
+.stage-badge.stage-1, .stage-badge.stage-3 {
+  background: var(--gray-dim);
+  color: var(--gray);
+}
+.stage-badge.stage-2 {
+  background: var(--green-dim);
+  color: var(--green);
+}
+.stage-badge.stage-4 {
+  background: var(--red-dim);
+  color: var(--red);
+}
+.stage-desc {
+  font-size: 13px;
+  color: var(--text-sec);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.stage-legend {
+  display: flex;
+  gap: 20px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.stage-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+}
+.legend-price {
+  background: var(--blue);
+}
+.legend-ma {
+  background: var(--amber);
+  opacity: 0.9;
 }
 
 .timeframe-row {
@@ -780,8 +844,6 @@ h1 {
 .news-impact-badge.high { color: var(--amber); background: var(--amber-dim); }
 .news-impact-badge.medium { color: var(--blue); background: var(--blue-glow); }
 .news-impact-badge.low { color: var(--text-sec); background: var(--glass-hover); }
-
-
 
 .grid-2col {
   display: grid;
