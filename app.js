@@ -124,12 +124,24 @@ let state = {
 let searchDebounce = null;
 
 // ── Lightweight canvas charting (no external dependency) ───────────────
-// Re-render trigger stored per canvas so we can redraw cleanly
 const lastDraw = new WeakMap();
 
 function setupCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const parent = canvas.parentElement;
+
+  // FIX: cache the ORIGINAL intended CSS height in a data-attribute that is
+  // never touched again. We can't keep re-reading getAttribute("height") on
+  // every call because canvas.height (the buffer property) is a *reflected*
+  // attribute — setting it also overwrites the "height" content attribute.
+  // Without this cache, each render would read back the PREVIOUS call's
+  // already-DPR-scaled buffer height as if it were the original CSS height,
+  // and scale it by dpr AGAIN — causing the canvas to double in size on
+  // every single redraw (switch timeframe, load ticker, resize, etc).
+  if (!canvas.dataset.baseHeight) {
+    canvas.dataset.baseHeight = canvas.getAttribute("height") || "200";
+  }
+  const cssHeight = parseInt(canvas.dataset.baseHeight, 10) || 200;
 
   // Temporarily clear inline width so parent can report its natural size
   canvas.style.width = "";
@@ -140,7 +152,6 @@ function setupCanvas(canvas) {
   const style = getComputedStyle(parent);
   const padH = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
   const cssWidth = Math.max(100, Math.round(rect.width - padH));
-  const cssHeight = parseInt(canvas.getAttribute("height"), 10) || 200;
 
   // Set explicit pixel dimensions for both display and buffer
   canvas.style.width = cssWidth + "px";
@@ -163,7 +174,6 @@ function drawLineChart(canvas, values, opts = {}) {
   const plotW = Math.max(1, W - padL - padR);
   const plotH = Math.max(1, H - padT - padB);
 
-  // Mobile-safe min/max (no spread operator to avoid stack overflow)
   const min = values.reduce((a, b) => Math.min(a, b), Infinity);
   const max = values.reduce((a, b) => Math.max(a, b), -Infinity);
   const range = (max - min) || Math.abs(max) || 1;
@@ -174,7 +184,6 @@ function drawLineChart(canvas, values, opts = {}) {
   const xAt = (i) => padL + (values.length > 1 ? (i / (values.length - 1)) * plotW : plotW / 2);
   const yAt = (v) => padT + plotH - ((v - niceMin) / niceRange) * plotH;
 
-  // Grid + y labels
   ctx.strokeStyle = "rgba(255,255,255,0.04)";
   ctx.lineWidth = 1;
   ctx.fillStyle = COLORS.textMuted;
@@ -192,7 +201,6 @@ function drawLineChart(canvas, values, opts = {}) {
     if (opts.yFormat) ctx.fillText(opts.yFormat(v), padL - 8, y);
   }
 
-  // Reference line (e.g. current price on forecast chart)
   if (opts.refValue != null) {
     const y = yAt(opts.refValue);
     ctx.save();
@@ -206,7 +214,6 @@ function drawLineChart(canvas, values, opts = {}) {
     ctx.restore();
   }
 
-  // Area fill
   if (opts.fillColor) {
     const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
     grad.addColorStop(0, opts.fillColor + "33");
@@ -221,7 +228,6 @@ function drawLineChart(canvas, values, opts = {}) {
     ctx.fill();
   }
 
-  // Line
   ctx.beginPath();
   values.forEach((v, i) => {
     const x = xAt(i), y = yAt(v);
@@ -233,7 +239,6 @@ function drawLineChart(canvas, values, opts = {}) {
   ctx.lineCap = "round";
   ctx.stroke();
 
-  // X labels (sparse)
   if (opts.xLabels) {
     ctx.fillStyle = COLORS.textMuted;
     ctx.textAlign = "center";
@@ -244,7 +249,6 @@ function drawLineChart(canvas, values, opts = {}) {
     });
   }
 
-  // Hover interaction
   attachHover(canvas, { xAt, yAt, values, padL, padT, plotW, plotH, tooltipFormat: opts.tooltipFormat, color: opts.color || COLORS.blue });
 }
 
@@ -258,7 +262,6 @@ function drawBarChart(canvas, values, colors, opts = {}) {
   const plotW = Math.max(1, W - padL - padR);
   const plotH = Math.max(1, H - padT - padB);
 
-  // Mobile-safe max
   const max = values.reduce((a, b) => Math.max(a, b), 1);
   const barGap = 1.5;
   const barW = Math.max(1, plotW / values.length - barGap);
@@ -376,7 +379,6 @@ function getOrCreateTooltip(canvas) {
   return tip;
 }
 
-// DOM-based crosshair — zero canvas memory usage, no getImageData
 function drawCrosshair(canvas, cfg, px, py) {
   let line = canvas._crosshairLine;
   let dot = canvas._crosshairDot;
@@ -613,7 +615,6 @@ function initTimeframeButtons() {
   const buttons = document.querySelectorAll(".tf-btn");
   if (!buttons.length) return;
   buttons.forEach((btn) => {
-    // Remove old listeners by cloning
     const newBtn = btn.cloneNode(true);
     btn.parentNode.replaceChild(newBtn, btn);
 
@@ -645,7 +646,6 @@ function renderPriceChart() {
   const data = state.history.map((d) => d.close);
   const dates = state.history.map((d) => d.date);
 
-  // Smart x-axis labels based on data range
   const n = dates.length;
   const labelCount = Math.min(6, n);
   const step = Math.max(1, Math.floor(n / labelCount));
@@ -659,7 +659,6 @@ function renderPriceChart() {
     return "";
   });
 
-  // Price change badge
   const badge = el("priceChangeBadge");
   if (badge && data.length >= 2) {
     const pct = ((data[data.length - 1] - data[0]) / data[0] * 100).toFixed(1);
@@ -673,7 +672,7 @@ function renderPriceChart() {
     fillColor: COLORS.blue,
     yFormat: (v) => currSym(state.currency) + fmtBig(v),
     xLabels,
-    tooltipFormat: (v, i) => `${dates[i]}  ${currSym(state.currency)}${fmt(v)}`,
+    tooltipFormat: (v, i) => `${dates[i]} ${currSym(state.currency)}${fmt(v)}`,
   });
 }
 
@@ -687,7 +686,7 @@ function renderVolumeChart() {
 
   drawBarChart(canvas, data, colors, {
     yFormat: (v) => fmtBig(v),
-    tooltipFormat: (v, i) => `${dates[i]}  Vol ${fmtBig(v)}`,
+    tooltipFormat: (v, i) => `${dates[i]} Vol ${fmtBig(v)}`,
   });
 }
 
@@ -716,7 +715,7 @@ function renderForecastChart() {
     refValue: stats.lastClose,
     yFormat: (v) => currSym(state.currency) + fmt(v, 0),
     xLabels: months,
-    tooltipFormat: (v, i) => `${months[i]}  ${currSym(state.currency)}${fmt(v)}`,
+    tooltipFormat: (v, i) => `${months[i]} ${currSym(state.currency)}${fmt(v)}`,
   });
 }
 
