@@ -138,9 +138,25 @@ def _confidence_from_stage(price_vs_ma_pct: float, ma_slope_pct: float, stage: i
     return int(max(35, min(95, round(confidence))))
 
 
+def _ema_alignment_adjustment(price_vs_ma_pct: float, ma_slope_pct: float,
+                               price_vs_ema_pct: float, ema_slope_pct: float):
+    """
+    Compares the 30-week SMA reading against the 52-week (yearly) EMA reading.
+    Full agreement on both position (price above/below) and slope direction
+    adds confidence; full disagreement subtracts. Partial agreement is a wash.
+    Returns an adjustment in the range -10..+10.
+    """
+    position_agree = (price_vs_ma_pct >= 0) == (price_vs_ema_pct >= 0)
+    slope_agree = (ma_slope_pct >= 0) == (ema_slope_pct >= 0)
+    score = (1 if position_agree else -1) + (1 if slope_agree else -1)  # -2..+2
+    return score * 5  # -10..+10
+
+
 def compute_stage_data(ticker: str):
     tkr = yf.Ticker(ticker)
-    hist = tkr.history(period="2y", interval="1wk")
+    # 3 years of weekly history — the extra year beyond what's displayed
+    # gives the 52-week EMA room to settle before the visible window starts.
+    hist = tkr.history(period="3y", interval="1wk")
     if hist.empty or len(hist) < 35:
         raise HTTPException(404, f"Not enough weekly history for {ticker} to compute stage")
 
@@ -148,30 +164,49 @@ def compute_stage_data(ticker: str):
     dates = [d.strftime("%Y-%m-%d") for d in hist.index]
 
     import pandas as pd
-    ma_series = pd.Series(closes).rolling(window=30).mean()
+    close_series = pd.Series(closes)
+    ma_series = close_series.rolling(window=30).mean()
+    ema_series = close_series.ewm(span=52, adjust=False).mean()
+
     ma_list = [round(v, 2) if pd.notna(v) else None for v in ma_series.tolist()]
+    ema_list = [round(v, 2) for v in ema_series.tolist()]
 
     last_close = closes[-1]
     last_ma = ma_series.iloc[-1]
     ma_5_ago = ma_series.iloc[-6] if len(ma_series) > 5 else ma_series.iloc[0]
+    last_ema = ema_series.iloc[-1]
+    ema_5_ago = ema_series.iloc[-6] if len(ema_series) > 5 else ema_series.iloc[0]
 
     price_vs_ma_pct = round((last_close - last_ma) / last_ma * 100, 2)
     ma_slope_pct = round((last_ma - ma_5_ago) / ma_5_ago * 100, 2) if ma_5_ago else 0.0
+    price_vs_ema_pct = round((last_close - last_ema) / last_ema * 100, 2)
+    ema_slope_pct = round((last_ema - ema_5_ago) / ema_5_ago * 100, 2) if ema_5_ago else 0.0
 
     stage = _classify_stage(price_vs_ma_pct, ma_slope_pct)
     signal = _signal_from_stage(stage, price_vs_ma_pct)
-    confidence = _confidence_from_stage(price_vs_ma_pct, ma_slope_pct, stage)
+    base_confidence = _confidence_from_stage(price_vs_ma_pct, ma_slope_pct, stage)
+    ema_adjustment = _ema_alignment_adjustment(price_vs_ma_pct, ma_slope_pct, price_vs_ema_pct, ema_slope_pct)
+    confidence = int(max(35, min(95, round(base_confidence + ema_adjustment))))
+
+    # Only keep the most recent ~2 years for display — the 3rd year of
+    # history was fetched purely to seed the EMA calculation.
+    display_points = min(len(dates), 104)
+    slice_from = len(dates) - display_points
 
     return {
         "ticker": ticker,
-        "dates": dates,
-        "closes": [round(c, 2) for c in closes],
-        "ma30": ma_list,
+        "dates": dates[slice_from:],
+        "closes": [round(c, 2) for c in closes[slice_from:]],
+        "ma30": ma_list[slice_from:],
+        "ema52": ema_list[slice_from:],
         "stage": stage,
         "stageLabel": STAGE_LABELS[stage],
         "stageDescription": STAGE_DESCRIPTIONS[stage],
         "priceVsMaPct": price_vs_ma_pct,
         "maSlopePct": ma_slope_pct,
+        "priceVsEmaPct": price_vs_ema_pct,
+        "emaSlopePct": ema_slope_pct,
+        "emaAgreement": ema_adjustment > 0,
         "signal": signal,
         "confidence": confidence,
     }
