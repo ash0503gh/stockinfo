@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>StockDash</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <!-- Header -->
+      <header>
+        <div class="brand">
+          <div class="logo-mark">S</div>
+          <div>
+            <h1>StockDash</h1>
+            <span class="version">v3.0</span>
+          </div>
+        </div>
+
+        <div class="search-wrap" id="searchWrap">
+          <div class="search-input-wrap">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="searchInput" placeholder="Search stocks (India & US)…" autocomplete="off" />
+            <span class="staged-dot" id="stagedDot"></span>
+            <div class="search-dropdown" id="searchDropdown"></div>
+          </div>
+          <button id="applyBtn" disabled>Analyze</button>
+        </div>
+      </header>
+
+      <!-- Ticker identity -->
+      <div class="ticker-bar" id="tickerBar" style="display:none;">
+        <span class="ticker-symbol" id="tickerSymbol"></span>
+        <span class="ticker-name" id="tickerName"></span>
+        <span class="ticker-currency" id="tickerCurrency"></span>
+      </div>
+
+      <div id="loadingMain" class="loading-pulse" style="display:none;">
+        <div class="spinner"></div>
+        <span id="loadingMainText">Loading…</span>
+      </div>
+
+      <div id="errorBox" class="error-box" style="display:none;"></div>
+
+      <div id="content" style="display:none;">
+        <!-- Stat row -->
+        <div class="stat-row" id="statRow"></div>
+
+        <!-- AI Verdict -->
+        <div id="aiLoading" class="loading-pulse" style="display:none;">
+          <div class="spinner"></div>
+          <span>Running AI analysis…</span>
+        </div>
+        <div id="verdictCard"></div>
+
+        <!-- Price + Volume charts -->
+        <div class="card chart-card">
+          <div class="card-label-row">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="card-label" style="margin-bottom:0;">Price History</span>
+              <span class="price-change-badge" id="priceChangeBadge"></span>
+            </div>
+            <div class="timeframe-row">
+              <button class="tf-btn" data-range="6mo" data-interval="1wk">6M</button>
+              <button class="tf-btn active" data-range="1y" data-interval="1wk">1Y</button>
+              <button class="tf-btn" data-range="3y" data-interval="1mo">3Y</button>
+              <button class="tf-btn" data-range="5y" data-interval="1mo">5Y</button>
+              <button class="tf-btn" data-range="10y" data-interval="1mo">10Y</button>
+            </div>
+          </div>
+          <canvas id="priceChart" height="220"></canvas>
+        </div>
+        <div class="card chart-card">
+          <div class="card-label">Monthly Volume</div>
+          <canvas id="volumeChart" height="100"></canvas>
+        </div>
+
+        <!-- Prediction + Factors -->
+        <div class="grid-2col">
+          <div class="card chart-card">
+            <div class="card-label-row">
+              <span class="card-label">12-Month Forecast</span>
+              <span id="forecastDelta"></span>
+            </div>
+            <canvas id="forecastChart" height="160"></canvas>
+          </div>
+          <div class="card" id="factorsCard">
+            <div class="card-label">Affecting Parameters</div>
+            <div id="factorsList"></div>
+          </div>
+        </div>
+
+        <!-- News -->
+        <div class="card" id="newsCard" style="display:none;">
+          <div class="card-label">Recent News</div>
+          <div id="newsList"></div>
+        </div>
+
+        
+      </div>
+
+      <footer>
+        Data from Yahoo Finance & Google News · AI via Gemini · India & US markets · Not financial advice
+      </footer>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
