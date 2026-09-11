@@ -165,6 +165,7 @@ let state = {
   staged: null,
   timeframe: "1y",
   stageData: null,
+  stageToggles: { sma: true, ema: true },
 };
 let searchDebounce = null;
 
@@ -354,19 +355,27 @@ function drawBarChart(canvas, values, colors, opts = {}) {
   });
 }
 
-// Two-series line chart: price + 30-week moving average, with a shaded
-// "current stage" highlight band over the most recent N points.
-function drawStageChart(canvas, prices, maValues, opts = {}) {
-  lastDraw.set(canvas, () => drawStageChart(canvas, prices, maValues, opts));
+// Multi-series line chart: price plus any number of toggleable overlay
+// lines (e.g. 30-week SMA, 52-week EMA), with a shaded "current stage"
+// highlight band over the most recent N points.
+// series: [{ values, color, dash: [a,b] or null, width, visible, label, key }]
+// The FIRST series in the array is treated as "price" — always drawn,
+// always the hover-tracking series, and included in the y-domain always.
+// Subsequent series are only drawn/considered for y-domain when visible.
+function drawStageChart(canvas, series, opts = {}) {
+  lastDraw.set(canvas, () => drawStageChart(canvas, series, opts));
   const { ctx, width: W, height: H } = setupCanvas(canvas);
   ctx.clearRect(0, 0, W, H);
+  const priceSeries = series[0];
+  const prices = priceSeries.values;
   if (!prices.length) return;
 
   const padL = 58, padR = 8, padT = 10, padB = 22;
   const plotW = Math.max(1, W - padL - padR);
   const plotH = Math.max(1, H - padT - padB);
 
-  const combined = prices.concat(maValues.filter((v) => v != null));
+  const visibleSeries = series.filter((s) => s === priceSeries || s.visible);
+  const combined = visibleSeries.flatMap((s) => s.values.filter((v) => v != null));
   const min = combined.reduce((a, b) => Math.min(a, b), Infinity);
   const max = combined.reduce((a, b) => Math.max(a, b), -Infinity);
   const range = (max - min) || Math.abs(max) || 1;
@@ -402,28 +411,31 @@ function drawStageChart(canvas, prices, maValues, opts = {}) {
     ctx.fillRect(xAt(bandStart), padT, xAt(n - 1) - xAt(bandStart), plotH);
   }
 
-  // MA line (drawn first, underneath)
-  ctx.beginPath();
-  let started = false;
-  maValues.forEach((v, i) => {
-    if (v == null) return;
-    const x = xAt(i), y = yAt(v);
-    if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+  // Overlay lines first (drawn underneath price), only if visible
+  series.slice(1).forEach((s) => {
+    if (!s.visible) return;
+    ctx.beginPath();
+    let started = false;
+    s.values.forEach((v, i) => {
+      if (v == null) return;
+      const x = xAt(i), y = yAt(v);
+      if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+    });
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = s.width || 1.6;
+    if (s.dash) ctx.setLineDash(s.dash);
+    ctx.stroke();
+    ctx.setLineDash([]);
   });
-  ctx.strokeStyle = COLORS.amber;
-  ctx.lineWidth = 1.6;
-  ctx.setLineDash([5, 3]);
-  ctx.stroke();
-  ctx.setLineDash([]);
 
-  // Price line (on top)
+  // Price line always drawn last (on top)
   ctx.beginPath();
   prices.forEach((v, i) => {
     const x = xAt(i), y = yAt(v);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
-  ctx.strokeStyle = COLORS.blue;
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = priceSeries.color;
+  ctx.lineWidth = priceSeries.width || 2;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.stroke();
@@ -440,7 +452,7 @@ function drawStageChart(canvas, prices, maValues, opts = {}) {
 
   attachHover(canvas, {
     xAt, yAt, values: prices, padL, padT, plotW, plotH,
-    tooltipFormat: opts.tooltipFormat, color: COLORS.blue,
+    tooltipFormat: opts.tooltipFormat, color: priceSeries.color,
   });
 }
 
@@ -834,9 +846,23 @@ function renderStageCard() {
 
   el("stageDesc").textContent = sd.stageDescription;
 
+  const emaNote = el("stageEmaNote");
+  if (emaNote && sd.emaAgreement != null) {
+    emaNote.textContent = sd.emaAgreement
+      ? "Yearly EMA agrees with this trend — confidence boosted."
+      : "Yearly EMA disagrees with this trend — confidence reduced.";
+    emaNote.className = "stage-ema-note " + (sd.emaAgreement ? "agree" : "disagree");
+  }
+
+  drawStageChartFromState();
+  initStageToggles();
+}
+
+function drawStageChartFromState() {
+  const sd = state.stageData;
+  if (!sd) return;
   const canvas = el("stageChart");
   const dates = sd.dates;
-  const n = dates.length;
   let lastYear = null;
   const xLabels = dates.map((d) => {
     const dt = new Date(d);
@@ -845,15 +871,42 @@ function renderStageCard() {
     return "";
   });
 
-  drawStageChart(canvas, sd.closes, sd.ma30, {
+  const series = [
+    { key: "price", values: sd.closes, color: COLORS.blue, width: 2 },
+    { key: "sma", values: sd.ma30, color: COLORS.amber, width: 1.6, dash: [5, 3], visible: state.stageToggles.sma },
+    { key: "ema", values: sd.ema52, color: "#A78BFA", width: 1.6, dash: [1, 3], visible: state.stageToggles.ema },
+  ];
+
+  drawStageChart(canvas, series, {
     stageColor: STAGE_COLOR[sd.stage],
     yFormat: (v) => currSym(state.currency) + fmtBig(v),
     xLabels,
     tooltipFormat: (v, i) => {
-      const maVal = sd.ma30[i];
-      return `${dates[i]}  ${currSym(state.currency)}${fmt(v)}${maVal != null ? `  MA ${currSym(state.currency)}${fmt(maVal)}` : ""}`;
+      const parts = [`${dates[i]}  ${currSym(state.currency)}${fmt(v)}`];
+      if (state.stageToggles.sma && sd.ma30[i] != null) parts.push(`SMA ${currSym(state.currency)}${fmt(sd.ma30[i])}`);
+      if (state.stageToggles.ema && sd.ema52[i] != null) parts.push(`EMA ${currSym(state.currency)}${fmt(sd.ema52[i])}`);
+      return parts.join("  ·  ");
     },
   });
+}
+
+function initStageToggles() {
+  const smaToggle = el("smaToggle");
+  const emaToggle = el("emaToggle");
+  if (smaToggle) {
+    smaToggle.checked = state.stageToggles.sma;
+    smaToggle.onchange = () => {
+      state.stageToggles.sma = smaToggle.checked;
+      drawStageChartFromState();
+    };
+  }
+  if (emaToggle) {
+    emaToggle.checked = state.stageToggles.ema;
+    emaToggle.onchange = () => {
+      state.stageToggles.ema = emaToggle.checked;
+      drawStageChartFromState();
+    };
+  }
 }
 
 // ── Timeframe buttons ─────────────────────────────────────────────────
