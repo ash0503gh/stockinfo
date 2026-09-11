@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>StockDash</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -40,6 +40,7 @@
         <span class="ticker-symbol" id="tickerSymbol"></span>
         <span class="ticker-name" id="tickerName"></span>
         <span class="ticker-currency" id="tickerCurrency"></span>
+        <span class="cache-indicator" id="cacheIndicator" style="display:none;">cached</span>
       </div>
 
       <div id="loadingMain" class="loading-pulse" style="display:none;">
@@ -59,6 +60,22 @@
           <span>Running AI analysis…</span>
         </div>
         <div id="verdictCard"></div>
+
+        <!-- Market Stage (Weinstein Stage Analysis) -->
+        <div class="card chart-card" id="stageCard">
+          <div class="card-label-row">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="card-label" style="margin-bottom:0;">Market Stage</span>
+              <span class="stage-badge" id="stageBadge"></span>
+            </div>
+          </div>
+          <div class="stage-desc" id="stageDesc"></div>
+          <canvas id="stageChart" height="200"></canvas>
+          <div class="stage-legend">
+            <span><i class="legend-swatch legend-price"></i>Price</span>
+            <span><i class="legend-swatch legend-ma"></i>30-week average</span>
+          </div>
+        </div>
 
         <!-- Price + Volume charts -->
         <div class="card chart-card">
@@ -103,7 +120,6 @@
           <div id="newsList"></div>
         </div>
 
-        
       </div>
 
       <footer>
