@@ -8,6 +8,8 @@ const COLORS = {
   redDim: "rgba(239,68,68,0.15)",
   amber: "#F59E0B",
   amberDim: "rgba(245,158,11,0.15)",
+  gray: "#94A3B8",
+  grayDim: "rgba(148,163,184,0.15)",
   textMuted: "#64748B",
   border: "rgba(255,255,255,0.08)",
   bg: "#0B0E14",
@@ -24,6 +26,14 @@ const SIGNAL_META = {
   "STRONG SELL":{ color: "#EF4444", bg: "rgba(239,68,68,0.15)", icon: "⬇" },
 };
 
+// Stage number -> chart/badge color
+const STAGE_COLOR = {
+  1: COLORS.gray,
+  2: COLORS.green,
+  3: COLORS.gray,
+  4: COLORS.red,
+};
+
 const FACTOR_POOL = [
   { name: "Fed Interest Rate Policy", type: "macro" },
   { name: "Sector Rotation Trends", type: "macro" },
@@ -35,12 +45,6 @@ const FACTOR_POOL = [
   { name: "Retail Investor Interest", type: "sentiment" },
   { name: "Analyst Consensus", type: "sentiment" },
   { name: "Short Interest Ratio", type: "sentiment" },
-  { name: "Revenue Growth Rate", type: "financial" },
-  { name: "Debt-to-Equity Ratio", type: "financial" },
-  { name: "Profit Margin Trend", type: "financial" },
-  { name: "Free Cash Flow", type: "financial" },
-  { name: "P/E Relative to Sector", type: "financial" },
-  { name: "Insider Transaction Activity", type: "financial" },
 ];
 
 const TIMEFRAMES = [
@@ -51,7 +55,82 @@ const TIMEFRAMES = [
   { label: "10Y", range: "10y", interval: "1mo" },
 ];
 
-// ── Simulated AI fallback ─────────────────────────────────────────────
+// ── Stage-grounded fallback (used when Gemini is unavailable) ──────────
+// Unlike the old random-PRNG fallback, this is derived entirely from the
+// real /api/stage computation — same signal/confidence a person would get
+// with Gemini working, just without an AI-written narrative.
+
+function getStageBasedAdvice(stageData) {
+  const { stage, priceVsMaPct, maSlopePct } = stageData;
+  const side = priceVsMaPct >= 0 ? "above" : "below";
+  const slopeDir = maSlopePct >= 0 ? "rising" : "falling";
+
+  const templates = {
+    1: {
+      adviceHeadline: "Basing — no clear trend yet",
+      adviceDetail: `Price is trading sideways, ${Math.abs(priceVsMaPct)}% ${side} a roughly flat 30-week average. This consolidation phase often precedes a bigger move, but the direction isn't confirmed yet.`,
+      adviceAction: "Wait for a confirmed breakout above the average before considering a buy.",
+    },
+    2: {
+      adviceHeadline: "Advancing — established uptrend",
+      adviceDetail: `Price is ${priceVsMaPct}% above a ${slopeDir} 30-week average, which has moved ${Math.abs(maSlopePct)}% over the last 5 weeks. This is the classic markup phase of a stock's cycle.`,
+      adviceAction: "Consider holding or building a position, using the moving average as a trailing reference for risk.",
+    },
+    3: {
+      adviceHeadline: "Topping — momentum is fading",
+      adviceDetail: `Price is ${Math.abs(priceVsMaPct)}% ${side} a flattening 30-week average after a prior advance. This distribution phase often precedes a trend reversal.`,
+      adviceAction: "Consider taking profits or tightening stops rather than adding to a position here.",
+    },
+    4: {
+      adviceHeadline: "Declining — established downtrend",
+      adviceDetail: `Price is ${Math.abs(priceVsMaPct)}% below a ${slopeDir} 30-week average, which has fallen ${Math.abs(maSlopePct)}% over the last 5 weeks. This is the markdown phase of a stock's cycle.`,
+      adviceAction: "Avoid new positions; a base typically needs to form before this trend reverses.",
+    },
+  };
+  return templates[stage] || templates[1];
+}
+
+function getStageBasedFactors(stageData, ticker) {
+  const { priceVsMaPct, maSlopePct } = stageData;
+  const rng = seededRandom(tickerSeed(ticker) + 7);
+
+  const realFactors = [
+    {
+      name: "Price vs 30-week average",
+      desc: `Currently ${Math.abs(priceVsMaPct)}% ${priceVsMaPct >= 0 ? "above" : "below"} the average.`,
+      type: "financial",
+      impact: Math.max(-10, Math.min(10, Math.round(priceVsMaPct / 2))),
+    },
+    {
+      name: "30-week average slope",
+      desc: `The average itself is ${maSlopePct >= 0 ? "rising" : "falling"} ${Math.abs(maSlopePct)}% over 5 weeks.`,
+      type: "financial",
+      impact: Math.max(-10, Math.min(10, Math.round(maSlopePct * 2))),
+    },
+  ];
+
+  const flavorFactors = [...FACTOR_POOL].sort(() => rng() - 0.5).slice(0, 3).map((f) => ({
+    ...f,
+    desc: `Simulated context factor for ${ticker}.`,
+    impact: Math.round((rng() - 0.4) * 14),
+  }));
+
+  return [...realFactors, ...flavorFactors];
+}
+
+function generateForecastFromStage(stageData, currentPrice) {
+  // Deterministic linear projection from the MA slope — no randomness.
+  // maSlopePct is measured over 5 weeks; scale to a monthly drift.
+  const weeklyDrift = stageData.maSlopePct / 5 / 100;
+  const monthlyDrift = weeklyDrift * 4.33;
+  const curve = [currentPrice];
+  for (let i = 1; i <= 12; i++) {
+    curve.push(Math.round(curve[i - 1] * (1 + monthlyDrift) * 100) / 100);
+  }
+  return curve;
+}
+
+// ── Legacy seeding utils (still used for factor flavor text) ───────────
 function tickerSeed(t) {
   let h = 0;
   for (let i = 0; i < t.length; i++) h = ((h << 5) - h + t.charCodeAt(i)) | 0;
@@ -60,41 +139,6 @@ function tickerSeed(t) {
 function seededRandom(seed) {
   let s = seed;
   return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
-}
-function generatePrediction(ticker, hist) {
-  const price = hist.length ? hist[hist.length - 1].close : 100;
-  const rng = seededRandom(tickerSeed(ticker));
-  const SIGNALS = ["STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"];
-  const signal = SIGNALS[Math.floor(rng() * SIGNALS.length)];
-  const confidence = Math.round(55 + rng() * 40);
-  const drift = signal.includes("BUY") ? 0.015 : signal.includes("SELL") ? -0.012 : 0.002;
-  const curve = [price];
-  for (let i = 1; i <= 12; i++) curve.push(Math.round(curve[i - 1] * (1 + drift + (rng() - 0.5) * 0.04) * 100) / 100);
-  return { signal, confidence, forecastCurve: curve };
-}
-function generateFactors(ticker) {
-  const rng = seededRandom(tickerSeed(ticker) + 99);
-  return [...FACTOR_POOL].sort(() => rng() - 0.5).slice(0, 6).map((f) => ({
-    ...f, desc: `Simulated factor analysis for ${ticker}.`, impact: Math.round((rng() - 0.4) * 16),
-  }));
-}
-function getLaymanAdvice(pred, yrRet) {
-  const { signal, confidence } = pred;
-  if (signal.includes("BUY")) return {
-    adviceHeadline: "Conditions favor accumulating this stock",
-    adviceDetail: `With a ${confidence}% confidence ${signal} signal${yrRet != null ? ` and a ${yrRet > 0 ? "positive" : "negative"} 1-year return of ${yrRet}%` : ""}, the current setup looks constructive. Momentum and sentiment factors lean positive.`,
-    adviceAction: "Consider building a position gradually on any near-term pullback.",
-  };
-  if (signal.includes("SELL")) return {
-    adviceHeadline: "Risk-reward tilts against holding here",
-    adviceDetail: `At ${confidence}% confidence, the model flags ${signal}. ${yrRet != null && yrRet < 0 ? `Already down ${Math.abs(yrRet)}% over 12 months.` : "Deteriorating factors suggest caution."} Downside pressure may persist.`,
-    adviceAction: "Consider trimming exposure or tightening stop-losses.",
-  };
-  return {
-    adviceHeadline: "Neutral stance — wait for clarity",
-    adviceDetail: `The model reads HOLD at ${confidence}% confidence. Neither bulls nor bears hold a decisive edge. Key catalysts ahead could break the stalemate.`,
-    adviceAction: "Hold current positions; avoid adding until direction clarifies.",
-  };
 }
 
 // ── Utility ───────────────────────────────────────────────────────────
@@ -120,8 +164,23 @@ let state = {
   aiSource: "simulated",
   staged: null,
   timeframe: "1y",
+  stageData: null,
 };
 let searchDebounce = null;
+
+// ── In-memory cache (tab session only, 30-minute TTL) ───────────────────
+// Two stores: chart data varies by ticker+timeframe, everything else
+// (news, stage, AI analysis) only varies by ticker.
+const CACHE_TTL_MS = 30 * 60 * 1000;
+const chartCache = new Map();   // key: "TICKER|range|interval" -> { data, timestamp }
+const tickerCache = new Map();  // key: "TICKER" -> { stockName, currency, news, stageData, analysis, aiSource, timestamp, analysisTimestamp }
+
+function isFresh(timestamp) {
+  return typeof timestamp === "number" && (Date.now() - timestamp) < CACHE_TTL_MS;
+}
+function chartCacheKey(ticker, range, interval) {
+  return `${ticker}|${range}|${interval}`;
+}
 
 // ── Lightweight canvas charting (no external dependency) ───────────────
 const lastDraw = new WeakMap();
@@ -130,30 +189,24 @@ function setupCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const parent = canvas.parentElement;
 
-  // FIX: cache the ORIGINAL intended CSS height in a data-attribute that is
-  // never touched again. We can't keep re-reading getAttribute("height") on
-  // every call because canvas.height (the buffer property) is a *reflected*
-  // attribute — setting it also overwrites the "height" content attribute.
-  // Without this cache, each render would read back the PREVIOUS call's
-  // already-DPR-scaled buffer height as if it were the original CSS height,
-  // and scale it by dpr AGAIN — causing the canvas to double in size on
-  // every single redraw (switch timeframe, load ticker, resize, etc).
+  // Cache the ORIGINAL intended CSS height in a data-attribute that is
+  // never touched again. canvas.height (buffer property) is a *reflected*
+  // attribute — setting it also overwrites the "height" content attribute,
+  // so re-reading getAttribute("height") on later calls would pick up the
+  // previous call's already-scaled buffer size and double it again.
   if (!canvas.dataset.baseHeight) {
     canvas.dataset.baseHeight = canvas.getAttribute("height") || "200";
   }
   const cssHeight = parseInt(canvas.dataset.baseHeight, 10) || 200;
 
-  // Temporarily clear inline width so parent can report its natural size
   canvas.style.width = "";
   canvas.style.height = "";
 
-  // Read the parent's actual content width (minus padding)
   const rect = parent.getBoundingClientRect();
   const style = getComputedStyle(parent);
   const padH = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
   const cssWidth = Math.max(100, Math.round(rect.width - padH));
 
-  // Set explicit pixel dimensions for both display and buffer
   canvas.style.width = cssWidth + "px";
   canvas.style.height = cssHeight + "px";
   canvas.width = Math.max(1, Math.round(cssWidth * dpr));
@@ -298,6 +351,96 @@ function drawBarChart(canvas, values, colors, opts = {}) {
     yAt: (v) => padT + plotH - (v / max) * plotH,
     values, padL, padT, plotW, plotH,
     tooltipFormat: opts.tooltipFormat, color: COLORS.blue, isBar: true,
+  });
+}
+
+// Two-series line chart: price + 30-week moving average, with a shaded
+// "current stage" highlight band over the most recent N points.
+function drawStageChart(canvas, prices, maValues, opts = {}) {
+  lastDraw.set(canvas, () => drawStageChart(canvas, prices, maValues, opts));
+  const { ctx, width: W, height: H } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, W, H);
+  if (!prices.length) return;
+
+  const padL = 58, padR = 8, padT = 10, padB = 22;
+  const plotW = Math.max(1, W - padL - padR);
+  const plotH = Math.max(1, H - padT - padB);
+
+  const combined = prices.concat(maValues.filter((v) => v != null));
+  const min = combined.reduce((a, b) => Math.min(a, b), Infinity);
+  const max = combined.reduce((a, b) => Math.max(a, b), -Infinity);
+  const range = (max - min) || Math.abs(max) || 1;
+  const niceMin = min - range * 0.08;
+  const niceMax = max + range * 0.08;
+  const niceRange = niceMax - niceMin || 1;
+
+  const n = prices.length;
+  const xAt = (i) => padL + (n > 1 ? (i / (n - 1)) * plotW : plotW / 2);
+  const yAt = (v) => padT + plotH - ((v - niceMin) / niceRange) * plotH;
+
+  // Grid
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.lineWidth = 1;
+  ctx.fillStyle = COLORS.textMuted;
+  ctx.font = "12px 'JetBrains Mono', monospace";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (let i = 0; i <= 4; i++) {
+    const v = niceMin + (niceRange * i) / 4;
+    const y = yAt(v);
+    ctx.beginPath();
+    ctx.moveTo(padL, Math.round(y) + 0.5);
+    ctx.lineTo(W - padR, Math.round(y) + 0.5);
+    ctx.stroke();
+    if (opts.yFormat) ctx.fillText(opts.yFormat(v), padL - 8, y);
+  }
+
+  // "You are here" highlight band over the most recent ~8 points
+  if (opts.stageColor) {
+    const bandStart = Math.max(0, n - 8);
+    ctx.fillStyle = opts.stageColor + "14";
+    ctx.fillRect(xAt(bandStart), padT, xAt(n - 1) - xAt(bandStart), plotH);
+  }
+
+  // MA line (drawn first, underneath)
+  ctx.beginPath();
+  let started = false;
+  maValues.forEach((v, i) => {
+    if (v == null) return;
+    const x = xAt(i), y = yAt(v);
+    if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+  });
+  ctx.strokeStyle = COLORS.amber;
+  ctx.lineWidth = 1.6;
+  ctx.setLineDash([5, 3]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Price line (on top)
+  ctx.beginPath();
+  prices.forEach((v, i) => {
+    const x = xAt(i), y = yAt(v);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = COLORS.blue;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.stroke();
+
+  if (opts.xLabels) {
+    ctx.fillStyle = COLORS.textMuted;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.font = "11px 'JetBrains Mono', monospace";
+    opts.xLabels.forEach((label, i) => {
+      if (label) ctx.fillText(label, xAt(i), padT + plotH + 5);
+    });
+  }
+
+  attachHover(canvas, {
+    xAt, yAt, values: prices, padL, padT, plotW, plotH,
+    tooltipFormat: opts.tooltipFormat, color: COLORS.blue,
   });
 }
 
@@ -491,35 +634,95 @@ applyBtn.addEventListener("click", () => {
 // ── Data loading ──────────────────────────────────────────────────────
 async function loadTicker(ticker) {
   state.ticker = ticker;
+  state.timeframe = "1y";
   el("content").style.display = "none";
   el("errorBox").style.display = "none";
-  el("loadingMain").style.display = "flex";
-  el("loadingMainText").textContent = `Fetching ${ticker} data…`;
 
-  try {
-    const [cRes, nRes] = await Promise.all([
-      fetch(`/api/chart/${ticker}`),
-      fetch(`/api/news/${ticker}`),
-    ]);
-    if (!cRes.ok) throw new Error("Failed to load chart data");
-    const cData = await cRes.json();
-    const nData = nRes.ok ? await nRes.json() : { articles: [] };
+  const defaultChartKey = chartCacheKey(ticker, "1y", "1wk");
+  const cachedChart = chartCache.get(defaultChartKey);
+  const cachedMeta = tickerCache.get(ticker);
+  const canUseCache = isFresh(cachedChart && cachedChart.timestamp) && isFresh(cachedMeta && cachedMeta.timestamp);
 
-    state.history = cData.history || [];
-    state.stockName = cData.name || ticker;
-    state.currency = cData.currency || "USD";
-    state.news = nData.articles || [];
+  if (canUseCache) {
+    state.history = cachedChart.data.history || [];
+    state.stockName = cachedMeta.stockName;
+    state.currency = cachedMeta.currency;
+    state.news = cachedMeta.news;
+    state.stageData = cachedMeta.stageData;
 
-    el("loadingMain").style.display = "none";
-    renderTickerBar();
-    if (!state.history.length) throw new Error("No price history available");
+    renderTickerBar(true);
+    if (!state.history.length) {
+      el("errorBox").textContent = "No price history available";
+      el("errorBox").style.display = "block";
+      return;
+    }
 
     el("content").style.display = "flex";
+    resetTimeframeButtonsToDefault();
     initTimeframeButtons();
     renderStats();
     renderPriceChart();
     renderVolumeChart();
     renderNews();
+    renderStageCard();
+
+    if (isFresh(cachedMeta.analysisTimestamp) && cachedMeta.analysis) {
+      state.analysis = cachedMeta.analysis;
+      state.aiSource = cachedMeta.aiSource;
+      renderVerdict();
+      updateSignalStat();
+      renderForecastChart();
+      renderFactors();
+    } else {
+      await runAiAnalysis();
+    }
+    return;
+  }
+
+  el("loadingMain").style.display = "flex";
+  el("loadingMainText").textContent = `Fetching ${ticker} data…`;
+
+  try {
+    const [cRes, nRes, sRes] = await Promise.all([
+      fetch(`/api/chart/${ticker}`),
+      fetch(`/api/news/${ticker}`),
+      fetch(`/api/stage/${ticker}`),
+    ]);
+    if (!cRes.ok) throw new Error("Failed to load chart data");
+    const cData = await cRes.json();
+    const nData = nRes.ok ? await nRes.json() : { articles: [] };
+    const sData = sRes.ok ? await sRes.json() : null;
+
+    state.history = cData.history || [];
+    state.stockName = cData.name || ticker;
+    state.currency = cData.currency || "USD";
+    state.news = nData.articles || [];
+    state.stageData = sData;
+
+    chartCache.set(defaultChartKey, { data: cData, timestamp: Date.now() });
+    tickerCache.set(ticker, {
+      stockName: state.stockName,
+      currency: state.currency,
+      news: state.news,
+      stageData: state.stageData,
+      timestamp: Date.now(),
+      analysis: null,
+      aiSource: null,
+      analysisTimestamp: 0,
+    });
+
+    el("loadingMain").style.display = "none";
+    renderTickerBar(false);
+    if (!state.history.length) throw new Error("No price history available");
+
+    el("content").style.display = "flex";
+    resetTimeframeButtonsToDefault();
+    initTimeframeButtons();
+    renderStats();
+    renderPriceChart();
+    renderVolumeChart();
+    renderNews();
+    renderStageCard();
 
     await runAiAnalysis();
   } catch (err) {
@@ -527,6 +730,12 @@ async function loadTicker(ticker) {
     el("errorBox").textContent = err.message;
     el("errorBox").style.display = "block";
   }
+}
+
+function resetTimeframeButtonsToDefault() {
+  document.querySelectorAll(".tf-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.range === "1y");
+  });
 }
 
 // ── Monthly data aggregation ──────────────────────────────────────────
@@ -564,11 +773,13 @@ function computeStats() {
   return { lastClose: last.close, monthlyChange, yrReturn, avgVol, lastDate };
 }
 
-function renderTickerBar() {
+function renderTickerBar(fromCache) {
   el("tickerBar").style.display = "flex";
   el("tickerSymbol").textContent = state.ticker;
   el("tickerName").textContent = state.stockName;
   el("tickerCurrency").textContent = state.currency;
+  const cacheEl = el("cacheIndicator");
+  if (cacheEl) cacheEl.style.display = fromCache ? "inline" : "none";
 }
 
 function renderStats() {
@@ -610,6 +821,41 @@ function updateSignalStat() {
   valueEl.innerHTML = `${a.signal} <span class="signal-conf-badge">${a.confidence}%</span>`;
 }
 
+// ── Market Stage card ────────────────────────────────────────────────
+function renderStageCard() {
+  const sd = state.stageData;
+  const card = el("stageCard");
+  if (!sd || !card) { if (card) card.style.display = "none"; return; }
+  card.style.display = "block";
+
+  const badge = el("stageBadge");
+  badge.className = "stage-badge stage-" + sd.stage;
+  badge.textContent = `Stage ${sd.stage} — ${sd.stageLabel}`;
+
+  el("stageDesc").textContent = sd.stageDescription;
+
+  const canvas = el("stageChart");
+  const dates = sd.dates;
+  const n = dates.length;
+  let lastYear = null;
+  const xLabels = dates.map((d) => {
+    const dt = new Date(d);
+    const y = dt.getFullYear();
+    if (y !== lastYear) { lastYear = y; return String(y); }
+    return "";
+  });
+
+  drawStageChart(canvas, sd.closes, sd.ma30, {
+    stageColor: STAGE_COLOR[sd.stage],
+    yFormat: (v) => currSym(state.currency) + fmtBig(v),
+    xLabels,
+    tooltipFormat: (v, i) => {
+      const maVal = sd.ma30[i];
+      return `${dates[i]}  ${currSym(state.currency)}${fmt(v)}${maVal != null ? `  MA ${currSym(state.currency)}${fmt(maVal)}` : ""}`;
+    },
+  });
+}
+
 // ── Timeframe buttons ─────────────────────────────────────────────────
 function initTimeframeButtons() {
   const buttons = document.querySelectorAll(".tf-btn");
@@ -624,10 +870,22 @@ function initTimeframeButtons() {
       const range = newBtn.dataset.range;
       const interval = newBtn.dataset.interval;
       state.timeframe = range;
+
+      const key = chartCacheKey(state.ticker, range, interval);
+      const cached = chartCache.get(key);
+      if (isFresh(cached && cached.timestamp)) {
+        state.history = cached.data.history || [];
+        renderStats();
+        renderPriceChart();
+        renderVolumeChart();
+        return;
+      }
+
       try {
         const res = await fetch(`/api/chart/${state.ticker}?range=${range}&interval=${interval}`);
         if (!res.ok) throw new Error("Failed to fetch timeframe");
         const data = await res.json();
+        chartCache.set(key, { data, timestamp: Date.now() });
         state.history = data.history || [];
         renderStats();
         renderPriceChart();
@@ -724,23 +982,35 @@ async function runAiAnalysis() {
   if (el("aiLoading")) el("aiLoading").style.display = "flex";
   if (el("verdictCard")) el("verdictCard").innerHTML = "";
   const stats = state._stats;
+  const sd = state.stageData;
 
   let analysis = null;
   let source = "simulated";
 
   try {
+    const body = {
+      ticker: state.ticker,
+      currentPrice: stats.lastClose,
+      oneYearReturn: stats.yrReturn,
+      monthlyChange: stats.monthlyChange,
+      avgVolume: stats.avgVol,
+      newsHeadlines: state.news.slice(0, 7).map((n) => n.title),
+      currency: state.currency,
+    };
+    // Ground the Gemini prompt in the real computed stage, when available.
+    if (sd) {
+      body.stage = sd.stage;
+      body.stageLabel = sd.stageLabel;
+      body.priceVsMaPct = sd.priceVsMaPct;
+      body.maSlopePct = sd.maSlopePct;
+      body.computedSignal = sd.signal;
+      body.computedConfidence = sd.confidence;
+    }
+
     const res = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ticker: state.ticker,
-        currentPrice: stats.lastClose,
-        oneYearReturn: stats.yrReturn,
-        monthlyChange: stats.monthlyChange,
-        avgVolume: stats.avgVol,
-        newsHeadlines: state.news.slice(0, 7).map((n) => n.title),
-        currency: state.currency,
-      }),
+      body: JSON.stringify(body),
     });
     if (res.ok) {
       const d = await res.json();
@@ -749,15 +1019,36 @@ async function runAiAnalysis() {
   } catch {}
 
   if (!analysis) {
-    const pred = generatePrediction(state.ticker, state.history);
-    const factors = generateFactors(state.ticker);
-    const advice = getLaymanAdvice(pred, stats.yrReturn);
-    analysis = { ...pred, ...advice, factors };
+    if (sd) {
+      // Stage-grounded fallback: real signal/confidence from the math,
+      // canned narrative text, deterministic forecast curve.
+      const advice = getStageBasedAdvice(sd);
+      const factors = getStageBasedFactors(sd, state.ticker);
+      const forecastCurve = generateForecastFromStage(sd, stats.lastClose);
+      analysis = { signal: sd.signal, confidence: sd.confidence, forecastCurve, ...advice, factors };
+    } else {
+      // Stage data itself unavailable — last-resort neutral placeholder.
+      analysis = {
+        signal: "HOLD", confidence: 40,
+        forecastCurve: Array(13).fill(stats.lastClose),
+        adviceHeadline: "Not enough data for a confident read",
+        adviceDetail: "Price history was too limited to compute a reliable technical stage for this ticker.",
+        adviceAction: "Try a ticker with more trading history.",
+        factors: [],
+      };
+    }
     source = "simulated";
   }
 
   state.analysis = analysis;
   state.aiSource = source;
+
+  const cacheEntry = tickerCache.get(state.ticker);
+  if (cacheEntry) {
+    cacheEntry.analysis = analysis;
+    cacheEntry.aiSource = source;
+    cacheEntry.analysisTimestamp = Date.now();
+  }
   if (el("aiLoading")) el("aiLoading").style.display = "none";
   renderVerdict();
   updateSignalStat();
@@ -816,7 +1107,7 @@ function renderVerdict() {
         ${alertHtml}
         <div class="ai-source-line">
           <span class="ai-source-dot" style="background:${state.aiSource === "gemini" ? COLORS.green : COLORS.amber}"></span>
-          ${state.aiSource === "gemini" ? "Gemini AI" : "Simulated model"} · Not financial advice
+          ${state.aiSource === "gemini" ? "Gemini AI" : "Computed from Stage Analysis"} · Not financial advice
         </div>
       </div>
     </div>
@@ -881,7 +1172,7 @@ window.addEventListener("resize", () => {
   lastWidth = window.innerWidth;
   clearTimeout(resizeDebounce);
   resizeDebounce = setTimeout(() => {
-    ["priceChart", "volumeChart", "forecastChart"].forEach((id) => {
+    ["priceChart", "volumeChart", "forecastChart", "stageChart"].forEach((id) => {
       const canvas = el(id);
       if (!canvas) return;
       const fn = lastDraw.get(canvas);
