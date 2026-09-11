@@ -442,20 +442,49 @@ h1 {
 .stage-desc {
   font-size: 13px;
   color: var(--text-sec);
-  margin-bottom: 14px;
+  margin-bottom: 6px;
   line-height: 1.5;
+}
+.stage-ema-note {
+  font-size: 12px;
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+.stage-ema-note.agree {
+  color: var(--green);
+}
+.stage-ema-note.disagree {
+  color: var(--red);
 }
 .stage-legend {
   display: flex;
-  gap: 20px;
+  flex-wrap: wrap;
+  gap: 18px;
   margin-top: 10px;
   font-size: 12px;
   color: var(--text-muted);
 }
-.stage-legend span {
+.legend-fixed {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+.legend-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.legend-toggle input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--blue);
+  cursor: pointer;
+  margin: 0;
+}
+.legend-toggle:hover {
+  color: var(--text-sec);
 }
 .legend-swatch {
   display: inline-block;
@@ -468,6 +497,10 @@ h1 {
 }
 .legend-ma {
   background: var(--amber);
+  opacity: 0.9;
+}
+.legend-ema {
+  background: #A78BFA;
   opacity: 0.9;
 }
 
