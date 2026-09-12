@@ -67,10 +67,22 @@ async def get_chart(ticker: str, interval: str = "1wk", range: str = "1y"):
             currency = "USD"
 
         hist = tkr.history(period=range, interval=interval)
-        return hist, currency
+
+        # Weekly/monthly bars from yfinance are labeled by the START of
+        # their period (e.g. Monday for a weekly bar), not the actual
+        # trading day the closing price came from. That makes "Last Close"
+        # look several days stale even though the price itself is current.
+        # A small daily-granularity fetch gets the true most-recent
+        # trading day and its close, independent of the chart's interval.
+        try:
+            daily = tkr.history(period="5d", interval="1d")
+        except Exception:
+            daily = None
+
+        return hist, currency, daily
 
     try:
-        hist, currency = await asyncio.to_thread(_get_history)
+        hist, currency, daily = await asyncio.to_thread(_get_history)
     except Exception as e:
         raise HTTPException(502, f"Failed to fetch chart: {str(e)}")
 
@@ -87,7 +99,19 @@ async def get_chart(ticker: str, interval: str = "1wk", range: str = "1y"):
             "volume": int(row["Volume"]) if "Volume" in row and pd.notna(row["Volume"]) else 0,
         })
 
-    return {"ticker": ticker, "name": ticker, "currency": currency, "history": history}
+    last_close = None
+    last_close_date = None
+    if daily is not None and not daily.empty:
+        last_close = round(float(daily["Close"].iloc[-1]), 2)
+        last_close_date = daily.index[-1].strftime("%Y-%m-%d")
+    elif history:
+        last_close = history[-1]["close"]
+        last_close_date = history[-1]["date"]
+
+    return {
+        "ticker": ticker, "name": ticker, "currency": currency, "history": history,
+        "lastClose": last_close, "lastCloseDate": last_close_date,
+    }
 
 
 # ── Stage Analysis (Weinstein-style, computed from real price data) ────
