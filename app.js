@@ -166,6 +166,8 @@ let state = {
   timeframe: "1y",
   stageData: null,
   stageToggles: { sma: true, ema: true },
+  statsHistory: [], // fixed ~1-year weekly dataset, independent of the chart's selected timeframe
+  trueLastClose: null, // { close, date } from a daily-granularity fetch — see computeStats()
 };
 let searchDebounce = null;
 
@@ -497,10 +499,18 @@ function attachHover(canvas, cfg) {
     }
     const v = cfg.values[idx];
     const px = cfg.xAt(idx), py = cfg.yAt(v);
+    // px/py are in CANVAS-local pixel space. The tooltip and crosshair are
+    // appended to the canvas's PARENT (so they can render outside the
+    // canvas's own clip box), which may have other content — label rows,
+    // badges, descriptions — stacked above the canvas. Without adding the
+    // canvas's own offset within that parent, the crosshair renders as if
+    // the canvas started at the very top of the card.
+    const offsetLeft = canvas.offsetLeft;
+    const offsetTop = canvas.offsetTop;
 
     tooltip.style.display = "block";
-    tooltip.style.left = Math.min(Math.max(px, 40), canvas.clientWidth - 40) + "px";
-    tooltip.style.top = "2px";
+    tooltip.style.left = (offsetLeft + Math.min(Math.max(px, 40), canvas.clientWidth - 40)) + "px";
+    tooltip.style.top = (offsetTop + 2) + "px";
     tooltip.textContent = cfg.tooltipFormat ? cfg.tooltipFormat(v, idx) : String(v);
 
     drawCrosshair(canvas, cfg, px, py);
@@ -559,15 +569,18 @@ function drawCrosshair(canvas, cfg, px, py) {
     return;
   }
 
+  const offsetLeft = canvas.offsetLeft;
+  const offsetTop = canvas.offsetTop;
+
   line.style.display = "block";
-  line.style.left = px + "px";
-  line.style.top = cfg.padT + "px";
+  line.style.left = (offsetLeft + px) + "px";
+  line.style.top = (offsetTop + cfg.padT) + "px";
   line.style.height = cfg.plotH + "px";
 
   if (!cfg.isBar) {
     dot.style.display = "block";
-    dot.style.left = px + "px";
-    dot.style.top = py + "px";
+    dot.style.left = (offsetLeft + px) + "px";
+    dot.style.top = (offsetTop + py) + "px";
     dot.style.background = cfg.color || "#FFF";
   } else {
     dot.style.display = "none";
@@ -657,6 +670,8 @@ async function loadTicker(ticker) {
 
   if (canUseCache) {
     state.history = cachedChart.data.history || [];
+    state.statsHistory = cachedChart.data.history || [];
+    state.trueLastClose = { close: cachedChart.data.lastClose, date: cachedChart.data.lastCloseDate };
     state.stockName = cachedMeta.stockName;
     state.currency = cachedMeta.currency;
     state.news = cachedMeta.news;
@@ -706,6 +721,8 @@ async function loadTicker(ticker) {
     const sData = sRes.ok ? await sRes.json() : null;
 
     state.history = cData.history || [];
+    state.statsHistory = cData.history || [];
+    state.trueLastClose = { close: cData.lastClose, date: cData.lastCloseDate };
     state.stockName = cData.name || ticker;
     state.currency = cData.currency || "USD";
     state.news = nData.articles || [];
@@ -771,18 +788,54 @@ function getMonthlyData(history) {
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────
+// IMPORTANT: these stats must be computed against a FIXED ~1-year dataset
+// (state.statsHistory), not whatever timeframe the chart happens to be
+// zoomed to (state.history) — the chart's data can be weekly, monthly, or
+// span 6 months to 10 years depending on the selected button, so a fixed
+// index offset like "13 entries back = 1 year ago" silently breaks: it's
+// only true if the data happens to be monthly. Finding the closest point
+// by actual date works regardless of the data's granularity.
+function closestPointByDaysAgo(history, daysAgo) {
+  if (!history.length) return null;
+  const lastTime = new Date(history[history.length - 1].date).getTime();
+  const targetTime = lastTime - daysAgo * 86400000;
+  let closest = history[0];
+  let bestDiff = Infinity;
+  for (const point of history) {
+    const diff = Math.abs(new Date(point.date).getTime() - targetTime);
+    if (diff < bestDiff) { bestDiff = diff; closest = point; }
+  }
+  return closest;
+}
+
+function hasEnoughSpanFor(history, daysAgo, toleranceDays) {
+  if (history.length < 2) return false;
+  const spanDays = (new Date(history[history.length - 1].date) - new Date(history[0].date)) / 86400000;
+  return spanDays >= (daysAgo - toleranceDays);
+}
+
 function computeStats() {
-  const h = state.history;
+  const h = (state.statsHistory && state.statsHistory.length) ? state.statsHistory : state.history;
   if (!h.length) return {};
+  const weeklyLast = h[h.length - 1];
+
+  // Prefer the accurate daily-fetched last close/date over the weekly bar's
+  // tail — a weekly bar is labeled by the START of its period, so its own
+  // "last" entry can look several days stale even though the actual close
+  // price is current. See /api/chart's lastClose/lastCloseDate fields.
+  const hasTrueLast = state.trueLastClose && state.trueLastClose.close != null;
+  const lastClose = hasTrueLast ? state.trueLastClose.close : weeklyLast.close;
+  const lastDate = hasTrueLast ? state.trueLastClose.date : (weeklyLast.date || "");
+
+  const monthPoint = hasEnoughSpanFor(h, 30, 10) ? closestPointByDaysAgo(h, 30) : null;
+  const yearPoint = hasEnoughSpanFor(h, 365, 25) ? closestPointByDaysAgo(h, 365) : null;
+
+  const monthlyChange = (monthPoint && monthPoint.close) ? parseFloat(((lastClose - monthPoint.close) / monthPoint.close * 100).toFixed(2)) : null;
+  const yrReturn = (yearPoint && yearPoint.close) ? parseFloat(((lastClose - yearPoint.close) / yearPoint.close * 100).toFixed(2)) : null;
+
   const monthly = getMonthlyData(h);
-  const last = h[h.length - 1];
-  const prev = h.length > 1 ? h[h.length - 2] : last;
-  const yr = h.length > 12 ? h[h.length - 13] : h[0];
-  const monthlyChange = prev.close ? parseFloat(((last.close - prev.close) / prev.close * 100).toFixed(2)) : null;
-  const yrReturn = yr.close ? parseFloat(((last.close - yr.close) / yr.close * 100).toFixed(2)) : null;
   const avgVol = monthly.length ? Math.round(monthly.slice(-12).reduce((s, d) => s + d.volume, 0) / Math.min(monthly.length, 12)) : 0;
-  const lastDate = last.date || "";
-  return { lastClose: last.close, monthlyChange, yrReturn, avgVol, lastDate };
+  return { lastClose, monthlyChange, yrReturn, avgVol, lastDate };
 }
 
 function renderTickerBar(fromCache) {
@@ -929,6 +982,7 @@ function initTimeframeButtons() {
       if (isFresh(cached && cached.timestamp)) {
         state.history = cached.data.history || [];
         renderStats();
+        updateSignalStat();
         renderPriceChart();
         renderVolumeChart();
         return;
@@ -941,6 +995,7 @@ function initTimeframeButtons() {
         chartCache.set(key, { data, timestamp: Date.now() });
         state.history = data.history || [];
         renderStats();
+        updateSignalStat();
         renderPriceChart();
         renderVolumeChart();
       } catch (err) {
