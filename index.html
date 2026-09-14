@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>StockDash</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -18,7 +18,7 @@
           <div class="logo-mark">S</div>
           <div>
             <h1>StockDash</h1>
-            <span class="version">v3.0</span>
+            <span class="version">v4.0</span>
           </div>
         </div>
 
@@ -35,12 +35,14 @@
         </div>
       </header>
 
-      <!-- Ticker identity -->
+      <!-- Ticker identity & Peer Chips -->
       <div class="ticker-bar" id="tickerBar" style="display:none;">
-        <span class="ticker-symbol" id="tickerSymbol"></span>
-        <span class="ticker-name" id="tickerName"></span>
-        <span class="ticker-currency" id="tickerCurrency"></span>
-        <span class="cache-indicator" id="cacheIndicator" style="display:none;">cached</span>
+        <div class="ticker-identity">
+          <span class="ticker-symbol" id="tickerSymbol"></span>
+          <span class="ticker-name" id="tickerName"></span>
+          <span class="ticker-currency" id="tickerCurrency"></span>
+        </div>
+        <div class="peer-chips" id="peerChips"></div>
       </div>
 
       <div id="loadingMain" class="loading-pulse" style="display:none;">
@@ -51,6 +53,31 @@
       <div id="errorBox" class="error-box" style="display:none;"></div>
 
       <div id="content" style="display:none;">
+        <!-- 52-Week Range Bar -->
+        <div class="card range-bar-card" id="rangeBarCard" style="display:none;">
+          <div class="range-bar-top">
+            <span class="range-bar-title">52-Week Price Range</span>
+            <span class="range-bar-badge" id="rangeBarBadge">—</span>
+          </div>
+          <div class="range-slider-wrap">
+            <div class="range-col">
+              <span class="range-lbl">52W Low</span>
+              <span class="range-num" id="range52Low">—</span>
+            </div>
+            <div class="range-track-box">
+              <div class="range-track">
+                <div class="range-fill" id="rangeFill"></div>
+                <div class="range-pin" id="rangePin"></div>
+              </div>
+              <div class="range-current-lbl" id="rangeCurrentLbl">Current: —</div>
+            </div>
+            <div class="range-col text-right">
+              <span class="range-lbl">52W High</span>
+              <span class="range-num" id="range52High">—</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Stat row -->
         <div class="stat-row" id="statRow"></div>
 
@@ -61,12 +88,21 @@
         </div>
         <div id="verdictCard"></div>
 
-        <!-- Market Stage (Weinstein Stage Analysis) -->
-        <div class="card chart-card" id="stageCard">
+        <!-- Market Stage Cycle Card (Weinstein Analysis) -->
+        <div class="card stage-card" id="stageCard" style="display:none;">
           <div class="card-label-row">
             <div style="display:flex;align-items:center;gap:10px;">
-              <span class="card-label" style="margin-bottom:0;">Market Stage</span>
-              <span class="stage-badge" id="stageBadge"></span>
+              <span class="card-label" style="margin-bottom:0;">Market Stage Cycle</span>
+              <span class="stage-badge" id="stageBadge">Stage —</span>
+            </div>
+            <div class="stage-stepper" id="stageStepper">
+              <span class="step-pill" data-step="1">1. Basing</span>
+              <span class="step-arrow">→</span>
+              <span class="step-pill" data-step="2">2. Advancing</span>
+              <span class="step-arrow">→</span>
+              <span class="step-pill" data-step="3">3. Topping</span>
+              <span class="step-arrow">→</span>
+              <span class="step-pill" data-step="4">4. Declining</span>
             </div>
           </div>
           <div class="stage-desc" id="stageDesc"></div>
@@ -80,8 +116,38 @@
             </label>
             <label class="legend-toggle">
               <input type="checkbox" id="emaToggle" checked />
-              <i class="legend-swatch legend-ema"></i>Yearly (52-week) EMA
+              <i class="legend-swatch legend-ema"></i>52-week EMA
             </label>
+          </div>
+        </div>
+
+        <!-- Key Levels & Action Plan -->
+        <div class="card levels-card" id="levelsCard" style="display:none;">
+          <div class="card-label-row">
+            <span class="card-label" style="margin-bottom:0;">Key Levels & Action Plan</span>
+            <span class="rr-badge" id="riskRewardBadge">R:R —</span>
+          </div>
+          <div class="levels-grid">
+            <div class="level-box support-box">
+              <div class="level-tag">🟢 Next Support (Floor)</div>
+              <div class="level-price" id="levelSupport">—</div>
+              <div class="level-sub" id="levelSupportDist">—</div>
+            </div>
+            <div class="level-box resistance-box">
+              <div class="level-tag">🔴 Next Resistance (Ceiling)</div>
+              <div class="level-price" id="levelResistance">—</div>
+              <div class="level-sub" id="levelResistanceDist">—</div>
+            </div>
+          </div>
+          <div class="action-scenarios" id="actionScenarios">
+            <div class="scenario-item">
+              <span class="scenario-badge buy-badge">FOR BUYERS</span>
+              <span class="scenario-text" id="scenarioBuy">—</span>
+            </div>
+            <div class="scenario-item">
+              <span class="scenario-badge hold-badge">FOR HOLDERS</span>
+              <span class="scenario-text" id="scenarioHold">—</span>
+            </div>
           </div>
         </div>
 
@@ -102,6 +168,7 @@
           </div>
           <canvas id="priceChart" height="220"></canvas>
         </div>
+
         <div class="card chart-card">
           <div class="card-label">Monthly Volume</div>
           <canvas id="volumeChart" height="100"></canvas>
@@ -127,11 +194,10 @@
           <div class="card-label">Recent News</div>
           <div id="newsList"></div>
         </div>
-
       </div>
 
       <footer>
-        Data from Yahoo Finance & Google News · AI via Gemini · India & US markets · Not financial advice
+        Data from Yahoo Finance & Google News · Stan Weinstein 4-Stage Model · India & US markets · Not financial advice
       </footer>
     </div>
   </div>

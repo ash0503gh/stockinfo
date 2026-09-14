@@ -8,6 +8,7 @@ const COLORS = {
   redDim: "rgba(239,68,68,0.15)",
   amber: "#F59E0B",
   amberDim: "rgba(245,158,11,0.15)",
+  purple: "#A78BFA",
   gray: "#94A3B8",
   grayDim: "rgba(148,163,184,0.15)",
   textMuted: "#64748B",
@@ -26,11 +27,10 @@ const SIGNAL_META = {
   "STRONG SELL":{ color: "#EF4444", bg: "rgba(239,68,68,0.15)", icon: "⬇" },
 };
 
-// Stage number -> chart/badge color
 const STAGE_COLOR = {
   1: COLORS.gray,
   2: COLORS.green,
-  3: COLORS.gray,
+  3: COLORS.amber,
   4: COLORS.red,
 };
 
@@ -45,6 +45,12 @@ const FACTOR_POOL = [
   { name: "Retail Investor Interest", type: "sentiment" },
   { name: "Analyst Consensus", type: "sentiment" },
   { name: "Short Interest Ratio", type: "sentiment" },
+  { name: "Revenue Growth Rate", type: "financial" },
+  { name: "Debt-to-Equity Ratio", type: "financial" },
+  { name: "Profit Margin Trend", type: "financial" },
+  { name: "Free Cash Flow", type: "financial" },
+  { name: "P/E Relative to Sector", type: "financial" },
+  { name: "Insider Transaction Activity", type: "financial" },
 ];
 
 const TIMEFRAMES = [
@@ -55,91 +61,25 @@ const TIMEFRAMES = [
   { label: "10Y", range: "10y", interval: "1mo" },
 ];
 
-// ── Stage-grounded fallback (used when Gemini is unavailable) ──────────
-// Unlike the old random-PRNG fallback, this is derived entirely from the
-// real /api/stage computation — same signal/confidence a person would get
-// with Gemini working, just without an AI-written narrative.
-
-function getStageBasedAdvice(stageData) {
-  const { stage, priceVsMaPct, maSlopePct } = stageData;
-  const side = priceVsMaPct >= 0 ? "above" : "below";
-  const slopeDir = maSlopePct >= 0 ? "rising" : "falling";
-
-  const templates = {
-    1: {
-      adviceHeadline: "Basing — no clear trend yet",
-      adviceDetail: `Price is trading sideways, ${Math.abs(priceVsMaPct)}% ${side} a roughly flat 30-week average. This consolidation phase often precedes a bigger move, but the direction isn't confirmed yet.`,
-      adviceAction: "Wait for a confirmed breakout above the average before considering a buy.",
-    },
-    2: {
-      adviceHeadline: "Advancing — established uptrend",
-      adviceDetail: `Price is ${priceVsMaPct}% above a ${slopeDir} 30-week average, which has moved ${Math.abs(maSlopePct)}% over the last 5 weeks. This is the classic markup phase of a stock's cycle.`,
-      adviceAction: "Consider holding or building a position, using the moving average as a trailing reference for risk.",
-    },
-    3: {
-      adviceHeadline: "Topping — momentum is fading",
-      adviceDetail: `Price is ${Math.abs(priceVsMaPct)}% ${side} a flattening 30-week average after a prior advance. This distribution phase often precedes a trend reversal.`,
-      adviceAction: "Consider taking profits or tightening stops rather than adding to a position here.",
-    },
-    4: {
-      adviceHeadline: "Declining — established downtrend",
-      adviceDetail: `Price is ${Math.abs(priceVsMaPct)}% below a ${slopeDir} 30-week average, which has fallen ${Math.abs(maSlopePct)}% over the last 5 weeks. This is the markdown phase of a stock's cycle.`,
-      adviceAction: "Avoid new positions; a base typically needs to form before this trend reverses.",
-    },
-  };
-  return templates[stage] || templates[1];
-}
-
-function getStageBasedFactors(stageData, ticker) {
-  const { priceVsMaPct, maSlopePct } = stageData;
-  const rng = seededRandom(tickerSeed(ticker) + 7);
-
-  const realFactors = [
-    {
-      name: "Price vs 30-week average",
-      desc: `Currently ${Math.abs(priceVsMaPct)}% ${priceVsMaPct >= 0 ? "above" : "below"} the average.`,
-      type: "financial",
-      impact: Math.max(-10, Math.min(10, Math.round(priceVsMaPct / 2))),
-    },
-    {
-      name: "30-week average slope",
-      desc: `The average itself is ${maSlopePct >= 0 ? "rising" : "falling"} ${Math.abs(maSlopePct)}% over 5 weeks.`,
-      type: "financial",
-      impact: Math.max(-10, Math.min(10, Math.round(maSlopePct * 2))),
-    },
-  ];
-
-  const flavorFactors = [...FACTOR_POOL].sort(() => rng() - 0.5).slice(0, 3).map((f) => ({
-    ...f,
-    desc: `Simulated context factor for ${ticker}.`,
-    impact: Math.round((rng() - 0.4) * 14),
-  }));
-
-  return [...realFactors, ...flavorFactors];
-}
-
-function generateForecastFromStage(stageData, currentPrice) {
-  // Deterministic linear projection from the MA slope — no randomness.
-  // maSlopePct is measured over 5 weeks; scale to a monthly drift.
-  const weeklyDrift = stageData.maSlopePct / 5 / 100;
-  const monthlyDrift = weeklyDrift * 4.33;
-  const curve = [currentPrice];
-  for (let i = 1; i <= 12; i++) {
-    curve.push(Math.round(curve[i - 1] * (1 + monthlyDrift) * 100) / 100);
-  }
-  return curve;
-}
-
-// ── Legacy seeding utils (still used for factor flavor text) ───────────
-function tickerSeed(t) {
-  let h = 0;
-  for (let i = 0; i < t.length; i++) h = ((h << 5) - h + t.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-function seededRandom(seed) {
-  let s = seed;
-  return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
-}
+// Popular peer groups for instant quick-comparison
+const PEER_MAP = {
+  "TCS.NS": ["INFY.NS", "WIPRO.NS", "HCLTECH.NS"],
+  "INFY.NS": ["TCS.NS", "WIPRO.NS", "HCLTECH.NS"],
+  "WIPRO.NS": ["TCS.NS", "INFY.NS", "HCLTECH.NS"],
+  "HCLTECH.NS": ["TCS.NS", "INFY.NS", "WIPRO.NS"],
+  "HDFCBANK.NS": ["ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS"],
+  "ICICIBANK.NS": ["HDFCBANK.NS", "SBIN.NS", "AXISBANK.NS"],
+  "SBIN.NS": ["HDFCBANK.NS", "ICICIBANK.NS", "PNB.NS"],
+  "RELIANCE.NS": ["TCS.NS", "HDFCBANK.NS", "BHARTIARTL.NS"],
+  "TATAMOTORS.NS": ["MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS"],
+  "AAPL": ["MSFT", "GOOGL", "NVDA", "AMZN"],
+  "MSFT": ["AAPL", "GOOGL", "NVDA", "AMZN"],
+  "NVDA": ["AMD", "INTC", "TSM", "AVGO"],
+  "GOOGL": ["MSFT", "META", "AAPL", "AMZN"],
+  "TSLA": ["RIVN", "LCID", "F", "GM"],
+  "META": ["GOOGL", "SNAP", "MSFT", "AMZN"],
+  "AMZN": ["MSFT", "GOOGL", "WMT", "AAPL"],
+};
 
 // ── Utility ───────────────────────────────────────────────────────────
 const fmt = (n, d = 2) => n != null ? Number(n).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : "—";
@@ -153,50 +93,117 @@ const fmtBig = (n) => {
 const currSym = (c) => c === "INR" ? "₹" : "$";
 const escapeHtml = (s) => (s || "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 
+// ── In-memory Cache (30-Minute TTL) ───────────────────────────────────
+const CACHE_TTL_MS = 30 * 60 * 1000;
+const chartCache = new Map();
+const tickerCache = new Map();
+
+function isFresh(timestamp) {
+  return typeof timestamp === "number" && (Date.now() - timestamp) < CACHE_TTL_MS;
+}
+
 // ── State ─────────────────────────────────────────────────────────────
 let state = {
   ticker: "AAPL",
   stockName: "",
   currency: "USD",
   history: [],
+  statsHistory: [],
   news: [],
   analysis: null,
+  stageData: null,
+  stageToggles: { sma: true, ema: true },
   aiSource: "simulated",
   staged: null,
   timeframe: "1y",
-  stageData: null,
-  stageToggles: { sma: true, ema: true },
-  statsHistory: [], // fixed ~1-year weekly dataset, independent of the chart's selected timeframe
-  trueLastClose: null, // { close, date } from a daily-granularity fetch — see computeStats()
+  trueLastClose: null,
+  high52: null,
+  low52: null,
 };
 let searchDebounce = null;
 
-// ── In-memory cache (tab session only, 30-minute TTL) ───────────────────
-// Two stores: chart data varies by ticker+timeframe, everything else
-// (news, stage, AI analysis) only varies by ticker.
-const CACHE_TTL_MS = 30 * 60 * 1000;
-const chartCache = new Map();   // key: "TICKER|range|interval" -> { data, timestamp }
-const tickerCache = new Map();  // key: "TICKER" -> { stockName, currency, news, stageData, analysis, aiSource, timestamp, analysisTimestamp }
+// ── Stage-Grounded Fallback (Deterministic & Technical) ───────────────
+function getStageBasedAdvice(stageData, yrRet) {
+  const stage = stageData ? stageData.stage : 1;
+  const pVsMa = stageData ? stageData.priceVsMaPct : 0;
+  const slope = stageData ? stageData.maSlopePct : 0;
+  const side = pVsMa >= 0 ? "above" : "below";
+  const slopeDir = slope >= 0 ? "rising" : "falling";
 
-function isFresh(timestamp) {
-  return typeof timestamp === "number" && (Date.now() - timestamp) < CACHE_TTL_MS;
-}
-function chartCacheKey(ticker, range, interval) {
-  return `${ticker}|${range}|${interval}`;
+  const templates = {
+    1: {
+      adviceHeadline: "Basing Phase — Accumulation in Progress",
+      adviceDetail: `Price is trading sideways (${Math.abs(pVsMa)}% ${side} a flat 30-week average). Institutional accumulation often occurs here, but upside momentum is not yet confirmed.`,
+      adviceAction: "Wait for a high-volume breakout above the 30-week moving average before buying.",
+    },
+    2: {
+      adviceHeadline: "Advancing Phase — Strong Uptrend Confirmed",
+      adviceDetail: `Price is ${pVsMa}% above a ${slopeDir} 30-week moving average. This is the institutional markup phase where the strongest compounding occurs.`,
+      adviceAction: "Hold or add on dips, using the 30-week average as your trailing stop-loss.",
+    },
+    3: {
+      adviceHeadline: "Topping Phase — Momentum is Exhausting",
+      adviceDetail: `Price is flattening after an extended rally, trading near an unstable 30-week average. Distribution patterns suggest institutional profit-taking.`,
+      adviceAction: "Consider booking partial profits and tightening stop-losses; avoid fresh entries.",
+    },
+    4: {
+      adviceHeadline: "Declining Phase — Severe Downtrend in Place",
+      adviceDetail: `Price is ${Math.abs(pVsMa)}% below a falling 30-week average. The stock is in a persistent markdown phase with high risk of capital erosion.`,
+      adviceAction: "Avoid buying or catch falling knives until a sound base (Stage 1) establishes.",
+    },
+  };
+  return templates[stage] || templates[1];
 }
 
-// ── Lightweight canvas charting (no external dependency) ───────────────
+function generateForecastFromStage(stageData, currentPrice) {
+  const slope = stageData ? stageData.maSlopePct : 0;
+  const monthlyDrift = (slope / 5 / 100) * 4.33;
+  const clampedDrift = Math.max(-0.04, Math.min(0.04, monthlyDrift));
+  const curve = [currentPrice];
+  for (let i = 1; i <= 12; i++) {
+    curve.push(Math.round(curve[i - 1] * (1 + clampedDrift) * 100) / 100);
+  }
+  return curve;
+}
+
+function generateFactorsFromStage(stageData, ticker) {
+  if (!stageData) return [];
+  const { priceVsMaPct, maSlopePct, stage } = stageData;
+  return [
+    {
+      name: "Price vs 30-Week Average",
+      desc: `Currently ${Math.abs(priceVsMaPct)}% ${priceVsMaPct >= 0 ? "above" : "below"} the institutional baseline.`,
+      type: "financial",
+      impact: Math.max(-10, Math.min(10, Math.round(priceVsMaPct / 2))),
+    },
+    {
+      name: "Moving Average Trend Slope",
+      desc: `The 30-week average is ${maSlopePct >= 0 ? "rising" : "falling"} ${Math.abs(maSlopePct)}% over the last 5 weeks.`,
+      type: "financial",
+      impact: Math.max(-10, Math.min(10, Math.round(maSlopePct * 2))),
+    },
+    {
+      name: "Market Cycle Stage",
+      desc: `Classified as Stage ${stage} (${stageData.stageLabel}) in the Weinstein cycle.`,
+      type: "macro",
+      impact: stage === 2 ? 8 : stage === 4 ? -8 : 1,
+    },
+    {
+      name: "Institutional EMA Agreement",
+      desc: stageData.emaAgreement ? "Yearly 52-week EMA confirms the directional trend." : "52-week EMA diverges from shorter trend.",
+      type: "sentiment",
+      impact: stageData.emaAgreement ? 5 : -4,
+    }
+  ];
+}
+
+// ── Lightweight Canvas Charting Engine ────────────────────────────────
 const lastDraw = new WeakMap();
 
 function setupCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const parent = canvas.parentElement;
 
-  // Cache the ORIGINAL intended CSS height in a data-attribute that is
-  // never touched again. canvas.height (buffer property) is a *reflected*
-  // attribute — setting it also overwrites the "height" content attribute,
-  // so re-reading getAttribute("height") on later calls would pick up the
-  // previous call's already-scaled buffer size and double it again.
   if (!canvas.dataset.baseHeight) {
     canvas.dataset.baseHeight = canvas.getAttribute("height") || "200";
   }
@@ -240,6 +247,7 @@ function drawLineChart(canvas, values, opts = {}) {
   const xAt = (i) => padL + (values.length > 1 ? (i / (values.length - 1)) * plotW : plotW / 2);
   const yAt = (v) => padT + plotH - ((v - niceMin) / niceRange) * plotH;
 
+  // Grid lines & Y labels
   ctx.strokeStyle = "rgba(255,255,255,0.04)";
   ctx.lineWidth = 1;
   ctx.fillStyle = COLORS.textMuted;
@@ -257,6 +265,7 @@ function drawLineChart(canvas, values, opts = {}) {
     if (opts.yFormat) ctx.fillText(opts.yFormat(v), padL - 8, y);
   }
 
+  // Reference line
   if (opts.refValue != null) {
     const y = yAt(opts.refValue);
     ctx.save();
@@ -270,6 +279,7 @@ function drawLineChart(canvas, values, opts = {}) {
     ctx.restore();
   }
 
+  // Area fill
   if (opts.fillColor) {
     const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
     grad.addColorStop(0, opts.fillColor + "33");
@@ -284,6 +294,7 @@ function drawLineChart(canvas, values, opts = {}) {
     ctx.fill();
   }
 
+  // Price Line
   ctx.beginPath();
   values.forEach((v, i) => {
     const x = xAt(i), y = yAt(v);
@@ -295,6 +306,7 @@ function drawLineChart(canvas, values, opts = {}) {
   ctx.lineCap = "round";
   ctx.stroke();
 
+  // X Labels
   if (opts.xLabels) {
     ctx.fillStyle = COLORS.textMuted;
     ctx.textAlign = "center";
@@ -357,36 +369,45 @@ function drawBarChart(canvas, values, colors, opts = {}) {
   });
 }
 
-// Multi-series line chart: price plus any number of toggleable overlay
-// lines (e.g. 30-week SMA, 52-week EMA), with a shaded "current stage"
-// highlight band over the most recent N points.
-// series: [{ values, color, dash: [a,b] or null, width, visible, label, key }]
-// The FIRST series in the array is treated as "price" — always drawn,
-// always the hover-tracking series, and included in the y-domain always.
-// Subsequent series are only drawn/considered for y-domain when visible.
-function drawStageChart(canvas, series, opts = {}) {
-  lastDraw.set(canvas, () => drawStageChart(canvas, series, opts));
+function roundRectTop(ctx, x, y, w, h, r) {
+  if (h <= 0) { ctx.beginPath(); return; }
+  r = Math.min(r, w / 2, h);
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+}
+
+// ── Multi-Line Stage Chart (Price + 30W SMA + 52W EMA) ───────────────
+function drawStageChart(canvas, stageData) {
+  if (!stageData || !stageData.closes || !stageData.closes.length) return;
+  lastDraw.set(canvas, () => drawStageChart(canvas, stageData));
+
   const { ctx, width: W, height: H } = setupCanvas(canvas);
   ctx.clearRect(0, 0, W, H);
-  const priceSeries = series[0];
-  const prices = priceSeries.values;
-  if (!prices.length) return;
 
+  const { closes, ma30, ema52, dates } = stageData;
   const padL = 58, padR = 8, padT = 10, padB = 22;
   const plotW = Math.max(1, W - padL - padR);
   const plotH = Math.max(1, H - padT - padB);
 
-  const visibleSeries = series.filter((s) => s === priceSeries || s.visible);
-  const combined = visibleSeries.flatMap((s) => s.values.filter((v) => v != null));
-  const min = combined.reduce((a, b) => Math.min(a, b), Infinity);
-  const max = combined.reduce((a, b) => Math.max(a, b), -Infinity);
+  // Determine global min and max across price, SMA, and EMA
+  let allVals = [...closes];
+  if (state.stageToggles.sma) allVals = allVals.concat(ma30.filter(v => v != null));
+  if (state.stageToggles.ema) allVals = allVals.concat(ema52.filter(v => v != null));
+
+  const min = allVals.reduce((a, b) => Math.min(a, b), Infinity);
+  const max = allVals.reduce((a, b) => Math.max(a, b), -Infinity);
   const range = (max - min) || Math.abs(max) || 1;
   const niceMin = min - range * 0.08;
   const niceMax = max + range * 0.08;
   const niceRange = niceMax - niceMin || 1;
 
-  const n = prices.length;
-  const xAt = (i) => padL + (n > 1 ? (i / (n - 1)) * plotW : plotW / 2);
+  const xAt = (i) => padL + (closes.length > 1 ? (i / (closes.length - 1)) * plotW : plotW / 2);
   const yAt = (v) => padT + plotH - ((v - niceMin) / niceRange) * plotH;
 
   // Grid
@@ -403,75 +424,75 @@ function drawStageChart(canvas, series, opts = {}) {
     ctx.moveTo(padL, Math.round(y) + 0.5);
     ctx.lineTo(W - padR, Math.round(y) + 0.5);
     ctx.stroke();
-    if (opts.yFormat) ctx.fillText(opts.yFormat(v), padL - 8, y);
+    ctx.fillText(currSym(state.currency) + fmtBig(v), padL - 8, y);
   }
 
-  // "You are here" highlight band over the most recent ~8 points
-  if (opts.stageColor) {
-    const bandStart = Math.max(0, n - 8);
-    ctx.fillStyle = opts.stageColor + "14";
-    ctx.fillRect(xAt(bandStart), padT, xAt(n - 1) - xAt(bandStart), plotH);
-  }
-
-  // Overlay lines first (drawn underneath price), only if visible
-  series.slice(1).forEach((s) => {
-    if (!s.visible) return;
+  // 1. Draw 52W EMA line (Purple)
+  if (state.stageToggles.ema) {
     ctx.beginPath();
-    let started = false;
-    s.values.forEach((v, i) => {
+    ema52.forEach((v, i) => {
       if (v == null) return;
       const x = xAt(i), y = yAt(v);
-      if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     });
-    ctx.strokeStyle = s.color;
-    ctx.lineWidth = s.width || 1.6;
-    if (s.dash) ctx.setLineDash(s.dash);
+    ctx.strokeStyle = COLORS.purple;
+    ctx.lineWidth = 1.6;
     ctx.stroke();
-    ctx.setLineDash([]);
-  });
+  }
 
-  // Price line always drawn last (on top)
+  // 2. Draw 30W SMA line (Amber)
+  if (state.stageToggles.sma) {
+    ctx.beginPath();
+    let started = false;
+    ma30.forEach((v, i) => {
+      if (v == null) return;
+      const x = xAt(i), y = yAt(v);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = COLORS.amber;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // 3. Draw Price Line (Blue)
   ctx.beginPath();
-  prices.forEach((v, i) => {
+  closes.forEach((v, i) => {
     const x = xAt(i), y = yAt(v);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
-  ctx.strokeStyle = priceSeries.color;
-  ctx.lineWidth = priceSeries.width || 2;
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
+  ctx.strokeStyle = COLORS.blue;
+  ctx.lineWidth = 2;
   ctx.stroke();
 
-  if (opts.xLabels) {
-    ctx.fillStyle = COLORS.textMuted;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.font = "11px 'JetBrains Mono', monospace";
-    opts.xLabels.forEach((label, i) => {
-      if (label) ctx.fillText(label, xAt(i), padT + plotH + 5);
-    });
-  }
+  // X date labels
+  const n = dates.length;
+  const step = Math.max(1, Math.floor(n / 5));
+  ctx.fillStyle = COLORS.textMuted;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.font = "11px 'JetBrains Mono', monospace";
+  dates.forEach((d, i) => {
+    if (i % step === 0 || i === n - 1) {
+      const dt = new Date(d);
+      const mon = dt.toLocaleString("en", { month: "short" });
+      const yr = "'" + String(dt.getFullYear()).slice(-2);
+      ctx.fillText(`${mon} ${yr}`, xAt(i), padT + plotH + 5);
+    }
+  });
 
+  // Attach hover for Stage Chart
   attachHover(canvas, {
-    xAt, yAt, values: prices, padL, padT, plotW, plotH,
-    tooltipFormat: opts.tooltipFormat, color: priceSeries.color,
+    xAt, yAt, values: closes, padL, padT, plotW, plotH, color: COLORS.blue,
+    tooltipFormat: (v, i) => {
+      let txt = `${dates[i]}  Price: ${currSym(state.currency)}${fmt(v)}`;
+      if (state.stageToggles.sma && ma30[i] != null) txt += ` · 30W SMA: ${fmt(ma30[i])}`;
+      if (state.stageToggles.ema && ema52[i] != null) txt += ` · 52W EMA: ${fmt(ema52[i])}`;
+      return txt;
+    }
   });
 }
 
-function roundRectTop(ctx, x, y, w, h, r) {
-  if (h <= 0) { ctx.beginPath(); return; }
-  r = Math.min(r, w / 2, h);
-  ctx.beginPath();
-  ctx.moveTo(x, y + h);
-  ctx.lineTo(x, y + r);
-  ctx.arcTo(x, y, x + r, y, r);
-  ctx.lineTo(x + w - r, y);
-  ctx.arcTo(x + w, y, x + w, y + r, r);
-  ctx.lineTo(x + w, y + h);
-  ctx.closePath();
-}
-
-// ── Hover + Crosshair (DOM-based, no getImageData) ─────────────────────
+// ── Hover & Crosshair (DOM Overlays, Offset-Accurate) ─────────────────
 const hoverState = new WeakMap();
 
 function attachHover(canvas, cfg) {
@@ -499,12 +520,7 @@ function attachHover(canvas, cfg) {
     }
     const v = cfg.values[idx];
     const px = cfg.xAt(idx), py = cfg.yAt(v);
-    // px/py are in CANVAS-local pixel space. The tooltip and crosshair are
-    // appended to the canvas's PARENT (so they can render outside the
-    // canvas's own clip box), which may have other content — label rows,
-    // badges, descriptions — stacked above the canvas. Without adding the
-    // canvas's own offset within that parent, the crosshair renders as if
-    // the canvas started at the very top of the card.
+
     const offsetLeft = canvas.offsetLeft;
     const offsetTop = canvas.offsetTop;
 
@@ -587,7 +603,7 @@ function drawCrosshair(canvas, cfg, px, py) {
   }
 }
 
-// ── DOM refs ──────────────────────────────────────────────────────────
+// ── DOM References ────────────────────────────────────────────────────
 const el = (id) => document.getElementById(id);
 const searchInput = el("searchInput");
 const searchDropdown = el("searchDropdown");
@@ -595,7 +611,7 @@ const searchInputWrap = document.querySelector(".search-input-wrap");
 const stagedDot = el("stagedDot");
 const applyBtn = el("applyBtn");
 
-// ── Search ────────────────────────────────────────────────────────────
+// ── Search Handlers ───────────────────────────────────────────────────
 searchInput.addEventListener("input", (e) => {
   const val = e.target.value;
   clearTimeout(searchDebounce);
@@ -612,6 +628,7 @@ searchInput.addEventListener("input", (e) => {
     } catch { renderSearchResults([]); }
   }, 280);
 });
+
 searchInput.addEventListener("focus", () => {
   searchInputWrap.classList.add("focused");
   if (searchDropdown.children.length) searchDropdown.classList.add("show");
@@ -656,118 +673,252 @@ applyBtn.addEventListener("click", () => {
   applyBtn.disabled = true;
 });
 
-// ── Data loading ──────────────────────────────────────────────────────
+// ── Core Data Loading with In-Memory Caching ──────────────────────────
 async function loadTicker(ticker) {
   state.ticker = ticker;
-  state.timeframe = "1y";
   el("content").style.display = "none";
   el("errorBox").style.display = "none";
+  el("loadingMain").style.display = "flex";
+  el("loadingMainText").textContent = `Analyzing ${ticker}…`;
 
-  const defaultChartKey = chartCacheKey(ticker, "1y", "1wk");
-  const cachedChart = chartCache.get(defaultChartKey);
+  const chartKey = `${ticker}|${state.timeframe}|1wk`;
+  const cachedChart = chartCache.get(chartKey);
   const cachedMeta = tickerCache.get(ticker);
-  const canUseCache = isFresh(cachedChart && cachedChart.timestamp) && isFresh(cachedMeta && cachedMeta.timestamp);
+
+  const canUseCache = cachedChart && isFresh(cachedChart.timestamp) && cachedMeta && isFresh(cachedMeta.timestamp);
 
   if (canUseCache) {
     state.history = cachedChart.data.history || [];
     state.statsHistory = cachedChart.data.history || [];
     state.trueLastClose = { close: cachedChart.data.lastClose, date: cachedChart.data.lastCloseDate };
+    state.high52 = cachedChart.data.high52;
+    state.low52 = cachedChart.data.low52;
     state.stockName = cachedMeta.stockName;
     state.currency = cachedMeta.currency;
     state.news = cachedMeta.news;
     state.stageData = cachedMeta.stageData;
+    state.analysis = cachedMeta.analysis;
+    state.aiSource = cachedMeta.aiSource;
 
-    renderTickerBar(true);
-    if (!state.history.length) {
-      el("errorBox").textContent = "No price history available";
-      el("errorBox").style.display = "block";
-      return;
-    }
-
-    el("content").style.display = "flex";
-    resetTimeframeButtonsToDefault();
-    initTimeframeButtons();
-    renderStats();
-    renderPriceChart();
-    renderVolumeChart();
-    renderNews();
-    renderStageCard();
-
-    if (isFresh(cachedMeta.analysisTimestamp) && cachedMeta.analysis) {
-      state.analysis = cachedMeta.analysis;
-      state.aiSource = cachedMeta.aiSource;
-      renderVerdict();
-      updateSignalStat();
-      renderForecastChart();
-      renderFactors();
-    } else {
-      await runAiAnalysis();
-    }
+    el("loadingMain").style.display = "none";
+    renderAllUI();
     return;
   }
 
-  el("loadingMain").style.display = "flex";
-  el("loadingMainText").textContent = `Fetching ${ticker} data…`;
-
   try {
-    const [cRes, nRes, sRes] = await Promise.all([
-      fetch(`/api/chart/${ticker}`),
-      fetch(`/api/news/${ticker}`),
+    const [cRes, sRes, nRes] = await Promise.all([
+      fetch(`/api/chart/${ticker}?range=1y&interval=1wk`),
       fetch(`/api/stage/${ticker}`),
+      fetch(`/api/news/${ticker}`),
     ]);
+
     if (!cRes.ok) throw new Error("Failed to load chart data");
     const cData = await cRes.json();
-    const nData = nRes.ok ? await nRes.json() : { articles: [] };
     const sData = sRes.ok ? await sRes.json() : null;
+    const nData = nRes.ok ? await nRes.json() : { articles: [] };
 
     state.history = cData.history || [];
     state.statsHistory = cData.history || [];
     state.trueLastClose = { close: cData.lastClose, date: cData.lastCloseDate };
+    state.high52 = cData.high52;
+    state.low52 = cData.low52;
     state.stockName = cData.name || ticker;
     state.currency = cData.currency || "USD";
     state.news = nData.articles || [];
     state.stageData = sData;
 
-    chartCache.set(defaultChartKey, { data: cData, timestamp: Date.now() });
+    // Cache the raw chart data
+    chartCache.set(chartKey, { data: cData, timestamp: Date.now() });
+
+    el("loadingMain").style.display = "none";
+    if (!state.history.length) throw new Error("No price history available");
+
+    renderAllUI();
+    await runAiAnalysis();
+
+    // Cache full ticker metadata
     tickerCache.set(ticker, {
       stockName: state.stockName,
       currency: state.currency,
       news: state.news,
       stageData: state.stageData,
-      timestamp: Date.now(),
-      analysis: null,
-      aiSource: null,
-      analysisTimestamp: 0,
+      analysis: state.analysis,
+      aiSource: state.aiSource,
+      timestamp: Date.now()
     });
 
-    el("loadingMain").style.display = "none";
-    renderTickerBar(false);
-    if (!state.history.length) throw new Error("No price history available");
-
-    el("content").style.display = "flex";
-    resetTimeframeButtonsToDefault();
-    initTimeframeButtons();
-    renderStats();
-    renderPriceChart();
-    renderVolumeChart();
-    renderNews();
-    renderStageCard();
-
-    await runAiAnalysis();
   } catch (err) {
     el("loadingMain").style.display = "none";
-    el("errorBox").textContent = err.message;
+    el("errorBox").textContent = err.message || "Error loading stock";
     el("errorBox").style.display = "block";
   }
 }
 
-function resetTimeframeButtonsToDefault() {
-  document.querySelectorAll(".tf-btn").forEach((b) => {
-    b.classList.toggle("active", b.dataset.range === "1y");
+function renderAllUI() {
+  el("content").style.display = "flex";
+  renderTickerBar();
+  renderPeerChips();
+  renderRangeBar();
+  renderStats();
+  renderStageCard();
+  renderKeyLevels();
+  initTimeframeButtons();
+  renderPriceChart();
+  renderVolumeChart();
+  renderNews();
+}
+
+// ── Render Ticker Bar & Peer Chips ────────────────────────────────────
+function renderTickerBar() {
+  el("tickerBar").style.display = "flex";
+  el("tickerSymbol").textContent = state.ticker;
+  el("tickerName").textContent = state.stockName;
+  el("tickerCurrency").textContent = state.currency;
+}
+
+function renderPeerChips() {
+  const container = el("peerChips");
+  if (!container) return;
+
+  let peers = PEER_MAP[state.ticker];
+  if (!peers) {
+    // Contextual fallback: if Indian stock, suggest top leaders; if US, suggest US tech
+    if (state.ticker.endsWith(".NS") || state.ticker.endsWith(".BO")) {
+      peers = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS"].filter(t => t !== state.ticker);
+    } else {
+      peers = ["AAPL", "MSFT", "NVDA"].filter(t => t !== state.ticker);
+    }
+  }
+
+  container.innerHTML = peers.map(p => `
+    <button class="peer-chip" data-peer="${escapeHtml(p)}">${escapeHtml(p.replace(/\.(NS|BO)/, ""))}</button>
+  `).join("");
+
+  container.querySelectorAll(".peer-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      loadTicker(btn.dataset.peer);
+    });
   });
 }
 
-// ── Monthly data aggregation ──────────────────────────────────────────
+// ── Render 52-Week Range Bar ──────────────────────────────────────────
+function renderRangeBar() {
+  const card = el("rangeBarCard");
+  if (!card) return;
+
+  const current = state.trueLastClose ? state.trueLastClose.close : (state.history.length ? state.history[state.history.length - 1].close : null);
+  const low = state.low52;
+  const high = state.high52;
+
+  if (current == null || low == null || high == null || high <= low) {
+    card.style.display = "none";
+    return;
+  }
+
+  card.style.display = "block";
+  const pct = Math.max(0, Math.min(100, ((current - low) / (high - low)) * 100));
+
+  el("range52Low").textContent = `${currSym(state.currency)}${fmt(low)}`;
+  el("range52High").textContent = `${currSym(state.currency)}${fmt(high)}`;
+  el("rangeCurrentLbl").textContent = `Current: ${currSym(state.currency)}${fmt(current)}`;
+  el("rangeBarBadge").textContent = `${pct.toFixed(0)}% of 52W Range`;
+  el("rangeFill").style.width = `${pct}%`;
+  el("rangePin").style.left = `${pct}%`;
+}
+
+// ── Render Market Stage Cycle Card (Weinstein Analysis) ───────────────
+function renderStageCard() {
+  const card = el("stageCard");
+  const s = state.stageData;
+  if (!card || !s) {
+    if (card) card.style.display = "none";
+    return;
+  }
+
+  card.style.display = "block";
+
+  // 1. Stage Badge & Stepper
+  const badge = el("stageBadge");
+  badge.textContent = `Stage ${s.stage}: ${s.stageLabel}`;
+  badge.style.color = STAGE_COLOR[s.stage] || COLORS.gray;
+  badge.style.background = (STAGE_COLOR[s.stage] || COLORS.gray) + "22";
+
+  document.querySelectorAll("#stageStepper .step-pill").forEach(pill => {
+    const stepNum = parseInt(pill.dataset.step, 10);
+    pill.classList.toggle("active", stepNum === s.stage);
+  });
+
+  // 2. Explanations
+  el("stageDesc").textContent = s.stageDescription;
+
+  const emaNote = el("stageEmaNote");
+  if (s.emaAgreement) {
+    emaNote.className = "stage-ema-note agree";
+    emaNote.textContent = `✓ High Conviction: 52-week (yearly) EMA aligns with the 30-week trend (${s.priceVsEmaPct >= 0 ? "above" : "below"} average).`;
+  } else {
+    emaNote.className = "stage-ema-note disagree";
+    emaNote.textContent = `⚠ Caution: 52-week EMA diverges from the 30-week trend. Market is in transition.`;
+  }
+
+  // 3. Stage Chart
+  const canvas = el("stageChart");
+  drawStageChart(canvas, s);
+
+  // 4. Toggle listeners (bind once)
+  const smaToggle = el("smaToggle");
+  const emaToggle = el("emaToggle");
+  if (smaToggle && !smaToggle._bound) {
+    smaToggle._bound = true;
+    smaToggle.addEventListener("change", () => {
+      state.stageToggles.sma = smaToggle.checked;
+      drawStageChart(canvas, state.stageData);
+    });
+  }
+  if (emaToggle && !emaToggle._bound) {
+    emaToggle._bound = true;
+    emaToggle.addEventListener("change", () => {
+      state.stageToggles.ema = emaToggle.checked;
+      drawStageChart(canvas, state.stageData);
+    });
+  }
+}
+
+// ── Render Key Levels & Action Plan ───────────────────────────────────
+function renderKeyLevels() {
+  const card = el("levelsCard");
+  const s = state.stageData;
+  if (!card || !s) {
+    if (card) card.style.display = "none";
+    return;
+  }
+
+  card.style.display = "block";
+
+  el("levelSupport").textContent = `${currSym(state.currency)}${fmt(s.support)}`;
+  el("levelSupportDist").textContent = `Safety Cushion: -${s.downsidePct}% downside`;
+
+  el("levelResistance").textContent = `${currSym(state.currency)}${fmt(s.resistance)}`;
+  el("levelResistanceDist").textContent = `Upside Target: +${s.upsidePct}%`;
+
+  el("riskRewardBadge").textContent = `R:R  1 : ${s.riskReward}`;
+
+  // Smart action scenario advice
+  const buyEl = el("scenarioBuy");
+  const holdEl = el("scenarioHold");
+
+  if (s.stage === 2) {
+    buyEl.textContent = `Setup favors breakout continuation. Look to accumulate above ${currSym(state.currency)}${fmt(s.resistance)} or on pullbacks near support at ${currSym(state.currency)}${fmt(s.support)}.`;
+    holdEl.textContent = `Maintain long positions. Trail your protective stop-loss just beneath support around ${currSym(state.currency)}${fmt(s.support * 0.98)}.`;
+  } else if (s.stage === 4) {
+    buyEl.textContent = `High risk of capital erosion. Avoid aggressive long entries until a confirmed accumulation base forms.`;
+    holdEl.textContent = `Downside momentum is active. Consider trimming exposure or setting tight stop-losses near resistance at ${currSym(state.currency)}${fmt(s.resistance)}.`;
+  } else {
+    buyEl.textContent = `Stock is consolidating sideways. Wait for price to decisively breach ${currSym(state.currency)}${fmt(s.resistance)} with heavy volume before entering.`;
+    holdEl.textContent = `Hold existing core positions. Expect chop between ${currSym(state.currency)}${fmt(s.support)} and ${currSym(state.currency)}${fmt(s.resistance)}.`;
+  }
+}
+
+// ── Monthly Aggregation & Calendar-Days Accurate Stats ────────────────
 function getMonthlyData(history) {
   const buckets = {};
   history.forEach((d) => {
@@ -787,14 +938,6 @@ function getMonthlyData(history) {
   }));
 }
 
-// ── Stats ─────────────────────────────────────────────────────────────
-// IMPORTANT: these stats must be computed against a FIXED ~1-year dataset
-// (state.statsHistory), not whatever timeframe the chart happens to be
-// zoomed to (state.history) — the chart's data can be weekly, monthly, or
-// span 6 months to 10 years depending on the selected button, so a fixed
-// index offset like "13 entries back = 1 year ago" silently breaks: it's
-// only true if the data happens to be monthly. Finding the closest point
-// by actual date works regardless of the data's granularity.
 function closestPointByDaysAgo(history, daysAgo) {
   if (!history.length) return null;
   const lastTime = new Date(history[history.length - 1].date).getTime();
@@ -808,43 +951,30 @@ function closestPointByDaysAgo(history, daysAgo) {
   return closest;
 }
 
-function hasEnoughSpanFor(history, daysAgo, toleranceDays) {
-  if (history.length < 2) return false;
-  const spanDays = (new Date(history[history.length - 1].date) - new Date(history[0].date)) / 86400000;
-  return spanDays >= (daysAgo - toleranceDays);
-}
-
 function computeStats() {
-  const h = (state.statsHistory && state.statsHistory.length) ? state.statsHistory : state.history;
+  const h = state.statsHistory.length ? state.statsHistory : state.history;
   if (!h.length) return {};
-  const weeklyLast = h[h.length - 1];
-
-  // Prefer the accurate daily-fetched last close/date over the weekly bar's
-  // tail — a weekly bar is labeled by the START of its period, so its own
-  // "last" entry can look several days stale even though the actual close
-  // price is current. See /api/chart's lastClose/lastCloseDate fields.
-  const hasTrueLast = state.trueLastClose && state.trueLastClose.close != null;
-  const lastClose = hasTrueLast ? state.trueLastClose.close : weeklyLast.close;
-  const lastDate = hasTrueLast ? state.trueLastClose.date : (weeklyLast.date || "");
-
-  const monthPoint = hasEnoughSpanFor(h, 30, 10) ? closestPointByDaysAgo(h, 30) : null;
-  const yearPoint = hasEnoughSpanFor(h, 365, 25) ? closestPointByDaysAgo(h, 365) : null;
-
-  const monthlyChange = (monthPoint && monthPoint.close) ? parseFloat(((lastClose - monthPoint.close) / monthPoint.close * 100).toFixed(2)) : null;
-  const yrReturn = (yearPoint && yearPoint.close) ? parseFloat(((lastClose - yearPoint.close) / yearPoint.close * 100).toFixed(2)) : null;
 
   const monthly = getMonthlyData(h);
-  const avgVol = monthly.length ? Math.round(monthly.slice(-12).reduce((s, d) => s + d.volume, 0) / Math.min(monthly.length, 12)) : 0;
-  return { lastClose, monthlyChange, yrReturn, avgVol, lastDate };
-}
+  const lastClose = state.trueLastClose ? state.trueLastClose.close : h[h.length - 1].close;
+  const lastDate = state.trueLastClose ? state.trueLastClose.date : h[h.length - 1].date;
 
-function renderTickerBar(fromCache) {
-  el("tickerBar").style.display = "flex";
-  el("tickerSymbol").textContent = state.ticker;
-  el("tickerName").textContent = state.stockName;
-  el("tickerCurrency").textContent = state.currency;
-  const cacheEl = el("cacheIndicator");
-  if (cacheEl) cacheEl.style.display = fromCache ? "inline" : "none";
+  const monthPoint = closestPointByDaysAgo(h, 30);
+  const yrPoint = closestPointByDaysAgo(h, 365);
+
+  const monthlyChange = monthPoint && monthPoint.close
+    ? parseFloat(((lastClose - monthPoint.close) / monthPoint.close * 100).toFixed(2))
+    : null;
+
+  const yrReturn = yrPoint && yrPoint.close
+    ? parseFloat(((lastClose - yrPoint.close) / yrPoint.close * 100).toFixed(2))
+    : null;
+
+  const avgVol = monthly.length
+    ? Math.round(monthly.slice(-12).reduce((s, d) => s + d.volume, 0) / Math.min(monthly.length, 12))
+    : 0;
+
+  return { lastClose, monthlyChange, yrReturn, avgVol, lastDate };
 }
 
 function renderStats() {
@@ -886,83 +1016,7 @@ function updateSignalStat() {
   valueEl.innerHTML = `${a.signal} <span class="signal-conf-badge">${a.confidence}%</span>`;
 }
 
-// ── Market Stage card ────────────────────────────────────────────────
-function renderStageCard() {
-  const sd = state.stageData;
-  const card = el("stageCard");
-  if (!sd || !card) { if (card) card.style.display = "none"; return; }
-  card.style.display = "block";
-
-  const badge = el("stageBadge");
-  badge.className = "stage-badge stage-" + sd.stage;
-  badge.textContent = `Stage ${sd.stage} — ${sd.stageLabel}`;
-
-  el("stageDesc").textContent = sd.stageDescription;
-
-  const emaNote = el("stageEmaNote");
-  if (emaNote && sd.emaAgreement != null) {
-    emaNote.textContent = sd.emaAgreement
-      ? "Yearly EMA agrees with this trend — confidence boosted."
-      : "Yearly EMA disagrees with this trend — confidence reduced.";
-    emaNote.className = "stage-ema-note " + (sd.emaAgreement ? "agree" : "disagree");
-  }
-
-  drawStageChartFromState();
-  initStageToggles();
-}
-
-function drawStageChartFromState() {
-  const sd = state.stageData;
-  if (!sd) return;
-  const canvas = el("stageChart");
-  const dates = sd.dates;
-  let lastYear = null;
-  const xLabels = dates.map((d) => {
-    const dt = new Date(d);
-    const y = dt.getFullYear();
-    if (y !== lastYear) { lastYear = y; return String(y); }
-    return "";
-  });
-
-  const series = [
-    { key: "price", values: sd.closes, color: COLORS.blue, width: 2 },
-    { key: "sma", values: sd.ma30, color: COLORS.amber, width: 1.6, dash: [5, 3], visible: state.stageToggles.sma },
-    { key: "ema", values: sd.ema52, color: "#A78BFA", width: 1.6, dash: [1, 3], visible: state.stageToggles.ema },
-  ];
-
-  drawStageChart(canvas, series, {
-    stageColor: STAGE_COLOR[sd.stage],
-    yFormat: (v) => currSym(state.currency) + fmtBig(v),
-    xLabels,
-    tooltipFormat: (v, i) => {
-      const parts = [`${dates[i]}  ${currSym(state.currency)}${fmt(v)}`];
-      if (state.stageToggles.sma && sd.ma30[i] != null) parts.push(`SMA ${currSym(state.currency)}${fmt(sd.ma30[i])}`);
-      if (state.stageToggles.ema && sd.ema52[i] != null) parts.push(`EMA ${currSym(state.currency)}${fmt(sd.ema52[i])}`);
-      return parts.join("  ·  ");
-    },
-  });
-}
-
-function initStageToggles() {
-  const smaToggle = el("smaToggle");
-  const emaToggle = el("emaToggle");
-  if (smaToggle) {
-    smaToggle.checked = state.stageToggles.sma;
-    smaToggle.onchange = () => {
-      state.stageToggles.sma = smaToggle.checked;
-      drawStageChartFromState();
-    };
-  }
-  if (emaToggle) {
-    emaToggle.checked = state.stageToggles.ema;
-    emaToggle.onchange = () => {
-      state.stageToggles.ema = emaToggle.checked;
-      drawStageChartFromState();
-    };
-  }
-}
-
-// ── Timeframe buttons ─────────────────────────────────────────────────
+// ── Timeframe Buttons ─────────────────────────────────────────────────
 function initTimeframeButtons() {
   const buttons = document.querySelectorAll(".tf-btn");
   if (!buttons.length) return;
@@ -977,12 +1031,10 @@ function initTimeframeButtons() {
       const interval = newBtn.dataset.interval;
       state.timeframe = range;
 
-      const key = chartCacheKey(state.ticker, range, interval);
-      const cached = chartCache.get(key);
-      if (isFresh(cached && cached.timestamp)) {
+      const chartKey = `${state.ticker}|${range}|${interval}`;
+      const cached = chartCache.get(chartKey);
+      if (cached && isFresh(cached.timestamp)) {
         state.history = cached.data.history || [];
-        renderStats();
-        updateSignalStat();
         renderPriceChart();
         renderVolumeChart();
         return;
@@ -992,10 +1044,8 @@ function initTimeframeButtons() {
         const res = await fetch(`/api/chart/${state.ticker}?range=${range}&interval=${interval}`);
         if (!res.ok) throw new Error("Failed to fetch timeframe");
         const data = await res.json();
-        chartCache.set(key, { data, timestamp: Date.now() });
         state.history = data.history || [];
-        renderStats();
-        updateSignalStat();
+        chartCache.set(chartKey, { data, timestamp: Date.now() });
         renderPriceChart();
         renderVolumeChart();
       } catch (err) {
@@ -1005,7 +1055,7 @@ function initTimeframeButtons() {
   });
 }
 
-// ── Charts ────────────────────────────────────────────────────────────
+// ── Render Charts ─────────────────────────────────────────────────────
 function renderPriceChart() {
   const canvas = el("priceChart");
   if (!canvas) return;
@@ -1038,7 +1088,7 @@ function renderPriceChart() {
     fillColor: COLORS.blue,
     yFormat: (v) => currSym(state.currency) + fmtBig(v),
     xLabels,
-    tooltipFormat: (v, i) => `${dates[i]} ${currSym(state.currency)}${fmt(v)}`,
+    tooltipFormat: (v, i) => `${dates[i]}  ${currSym(state.currency)}${fmt(v)}`,
   });
 }
 
@@ -1052,7 +1102,7 @@ function renderVolumeChart() {
 
   drawBarChart(canvas, data, colors, {
     yFormat: (v) => fmtBig(v),
-    tooltipFormat: (v, i) => `${dates[i]} Vol ${fmtBig(v)}`,
+    tooltipFormat: (v, i) => `${dates[i]}  Vol ${fmtBig(v)}`,
   });
 }
 
@@ -1081,44 +1131,38 @@ function renderForecastChart() {
     refValue: stats.lastClose,
     yFormat: (v) => currSym(state.currency) + fmt(v, 0),
     xLabels: months,
-    tooltipFormat: (v, i) => `${months[i]} ${currSym(state.currency)}${fmt(v)}`,
+    tooltipFormat: (v, i) => `${months[i]}  ${currSym(state.currency)}${fmt(v)}`,
   });
 }
 
-// ── AI analysis ───────────────────────────────────────────────────────
+// ── AI Analysis (Gemini with Stage-Grounded Fallback) ─────────────────
 async function runAiAnalysis() {
   if (el("aiLoading")) el("aiLoading").style.display = "flex";
   if (el("verdictCard")) el("verdictCard").innerHTML = "";
   const stats = state._stats;
-  const sd = state.stageData;
+  const s = state.stageData;
 
   let analysis = null;
   let source = "simulated";
 
   try {
-    const body = {
-      ticker: state.ticker,
-      currentPrice: stats.lastClose,
-      oneYearReturn: stats.yrReturn,
-      monthlyChange: stats.monthlyChange,
-      avgVolume: stats.avgVol,
-      newsHeadlines: state.news.slice(0, 7).map((n) => n.title),
-      currency: state.currency,
-    };
-    // Ground the Gemini prompt in the real computed stage, when available.
-    if (sd) {
-      body.stage = sd.stage;
-      body.stageLabel = sd.stageLabel;
-      body.priceVsMaPct = sd.priceVsMaPct;
-      body.maSlopePct = sd.maSlopePct;
-      body.computedSignal = sd.signal;
-      body.computedConfidence = sd.confidence;
-    }
-
     const res = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        ticker: state.ticker,
+        currentPrice: stats.lastClose,
+        oneYearReturn: stats.yrReturn,
+        monthlyChange: stats.monthlyChange,
+        avgVolume: stats.avgVol,
+        newsHeadlines: state.news.slice(0, 10).map((n) => n.title),
+        currency: state.currency,
+        stage: s ? s.stage : undefined,
+        stageLabel: s ? s.stageLabel : undefined,
+        priceVsMaPct: s ? s.priceVsMaPct : undefined,
+        computedSignal: s ? s.signal : undefined,
+        computedConfidence: s ? s.confidence : undefined,
+      }),
     });
     if (res.ok) {
       const d = await res.json();
@@ -1127,36 +1171,21 @@ async function runAiAnalysis() {
   } catch {}
 
   if (!analysis) {
-    if (sd) {
-      // Stage-grounded fallback: real signal/confidence from the math,
-      // canned narrative text, deterministic forecast curve.
-      const advice = getStageBasedAdvice(sd);
-      const factors = getStageBasedFactors(sd, state.ticker);
-      const forecastCurve = generateForecastFromStage(sd, stats.lastClose);
-      analysis = { signal: sd.signal, confidence: sd.confidence, forecastCurve, ...advice, factors };
-    } else {
-      // Stage data itself unavailable — last-resort neutral placeholder.
-      analysis = {
-        signal: "HOLD", confidence: 40,
-        forecastCurve: Array(13).fill(stats.lastClose),
-        adviceHeadline: "Not enough data for a confident read",
-        adviceDetail: "Price history was too limited to compute a reliable technical stage for this ticker.",
-        adviceAction: "Try a ticker with more trading history.",
-        factors: [],
-      };
-    }
-    source = "simulated";
+    const advice = getStageBasedAdvice(s, stats.yrReturn);
+    const factors = generateFactorsFromStage(s, state.ticker);
+    const forecastCurve = generateForecastFromStage(s, stats.lastClose);
+    analysis = {
+      signal: s ? s.signal : "HOLD",
+      confidence: s ? s.confidence : 60,
+      forecastCurve,
+      ...advice,
+      factors,
+    };
+    source = "stage-model";
   }
 
   state.analysis = analysis;
   state.aiSource = source;
-
-  const cacheEntry = tickerCache.get(state.ticker);
-  if (cacheEntry) {
-    cacheEntry.analysis = analysis;
-    cacheEntry.aiSource = source;
-    cacheEntry.analysisTimestamp = Date.now();
-  }
   if (el("aiLoading")) el("aiLoading").style.display = "none";
   renderVerdict();
   updateSignalStat();
@@ -1198,7 +1227,7 @@ function renderVerdict() {
                 <path d="M12 2a7 7 0 017 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 01-2 2h-4a2 2 0 01-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 017-7z"/>
                 <line x1="10" y1="22" x2="14" y2="22"/>
               </svg>
-              AI Verdict
+              AI Research Verdict
             </div>
             <div class="verdict-headline">${escapeHtml(a.adviceHeadline)}</div>
           </div>
@@ -1214,8 +1243,8 @@ function renderVerdict() {
         <div class="verdict-action">${escapeHtml(a.adviceAction)}</div>
         ${alertHtml}
         <div class="ai-source-line">
-          <span class="ai-source-dot" style="background:${state.aiSource === "gemini" ? COLORS.green : COLORS.amber}"></span>
-          ${state.aiSource === "gemini" ? "Gemini AI" : "Computed from Stage Analysis"} · Not financial advice
+          <span class="ai-source-dot" style="background:${state.aiSource === "gemini" ? COLORS.green : COLORS.cyan}"></span>
+          ${state.aiSource === "gemini" ? "Gemini AI" : "Stan Weinstein Cycle Model"} · Not financial advice
         </div>
       </div>
     </div>
@@ -1272,7 +1301,7 @@ function renderNews() {
   `).join("");
 }
 
-// ── Resize handling (mobile-safe: ignores height-only changes) ────────
+// ── Mobile-Safe Resize Handler ────────────────────────────────────────
 let resizeDebounce = null;
 let lastWidth = window.innerWidth;
 window.addEventListener("resize", () => {
@@ -1289,5 +1318,5 @@ window.addEventListener("resize", () => {
   }, 250);
 });
 
-// ── Init ──────────────────────────────────────────────────────────────
+// ── Initialize App ────────────────────────────────────────────────────
 loadTicker(state.ticker);
