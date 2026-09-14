@@ -126,16 +126,16 @@ async def get_chart(ticker: str, interval: str = "1wk", range: str = "1y"):
 # ── Stage Analysis (Weinstein-style, computed from real price data) ────
 
 STAGE_LABELS = {
-    1: "Basing",
-    2: "Advancing",
-    3: "Topping",
-    4: "Declining",
+    1: "Bottoming",
+    2: "Uptrend",
+    3: "Peak",
+    4: "Downtrend",
 }
 STAGE_DESCRIPTIONS = {
-    1: "Price is moving sideways near a flat 30-week average — no clear trend yet (Accumulation).",
-    2: "Price is above a rising 30-week average — an established uptrend (Markup phase).",
-    3: "Price is flattening out near the top of its range — momentum is fading (Distribution).",
-    4: "Price is below a falling 30-week average — an established downtrend (Markdown phase).",
+    1: "Price is moving sideways and forming a floor — buyers and sellers are balanced, waiting for a breakout.",
+    2: "Price is in a steady uptrend above its long-term average — buyers are firmly in control.",
+    3: "Price is flattening out near its highs — upward momentum is slowing as investors lock in profits.",
+    4: "Price is in a persistent downtrend below its long-term average — sellers are in control with high risk.",
 }
 
 
@@ -424,7 +424,7 @@ async def analyze_stock(req: AnalyzeRequest):
     if req.stage and req.stageLabel:
         stage_context = f"\nTechnical Stage Context:\n- Stan Weinstein Cycle: Stage {req.stage} ({req.stageLabel})\n- Price vs 30-Week Moving Average: {req.priceVsMaPct}%\n- Base Computed Signal: {req.computedSignal} ({req.computedConfidence}% confidence)\n"
 
-    prompt = f"""You are a senior equity research analyst. Analyze the stock {req.ticker} and return ONLY valid JSON (no markdown, no backticks).
+    prompt = f"""You are a helpful, clear financial advisor explaining stock analysis to everyday retail investors and beginners. Analyze the stock {req.ticker} and return ONLY valid JSON (no markdown, no backticks).
 
 Current data:
 - Price: {req.currency} {req.currentPrice}
@@ -434,16 +434,24 @@ Current data:
 Recent headlines:
 {news_block}
 
+CRITICAL BEGINNER-FRIENDLY TONE & VOCABULARY RULES:
+- Write in simple, clear, conversational English that anyone without a finance background can easily understand.
+- DO NOT use confusing Wall Street jargon or technical trader terms such as: "capital erosion", "aggressive long entries", "accumulation base", "distribution", "trailing stop-loss", "markdown phase", "consolidation", "headwinds/tailwinds".
+- INSTEAD use simple, direct words: "risk of losing money", "buying shares", "stock stabilizing after a fall", "investors taking profits", "safety exit", "selling pressure", "buying interest".
+- adviceHeadline: 6-10 words, bold and clear (e.g. "Steady Uptrend: Good Time to Hold or Buy", "Falling Stock: High Risk, Better to Wait").
+- adviceDetail: 2-3 simple, friendly sentences explaining what is happening with the stock and what the main risks/opportunities are.
+- adviceAction: 1 actionable, practical sentence telling the user what to do in plain terms (e.g. "Wait for the price to stop falling and stabilize before investing fresh money.").
+
 Return this exact JSON schema:
 {{
   "signal": "STRONG BUY" | "BUY" | "HOLD" | "SELL" | "STRONG SELL",
   "confidence": <number 0-100>,
   "forecastCurve": [<12 numbers: predicted monthly closing prices for the next 12 months>],
-  "adviceHeadline": "<short bold verdict, 6-10 words>",
-  "adviceDetail": "<2-3 sentence plain-English explanation for a retail investor>",
-  "adviceAction": "<1 sentence concrete action step>",
+  "adviceHeadline": "<short bold verdict, 6-10 words in plain English>",
+  "adviceDetail": "<2-3 simple sentences in beginner-friendly English>",
+  "adviceAction": "<1 simple, actionable sentence>",
   "factors": [
-    {{"name": "<factor name>", "desc": "<1 sentence>", "type": "macro" | "sentiment" | "financial", "impact": <integer -10 to 10>}}
+    {{"name": "<factor name in plain English>", "desc": "<1 clear sentence>", "type": "macro" | "sentiment" | "financial", "impact": <integer -10 to 10>}}
   ]
 }}
 

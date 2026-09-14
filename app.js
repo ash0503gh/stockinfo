@@ -132,24 +132,24 @@ function getStageBasedAdvice(stageData, yrRet) {
 
   const templates = {
     1: {
-      adviceHeadline: "Basing Phase — Accumulation in Progress",
-      adviceDetail: `Price is trading sideways (${Math.abs(pVsMa)}% ${side} a flat 30-week average). Institutional accumulation often occurs here, but upside momentum is not yet confirmed.`,
-      adviceAction: "Wait for a high-volume breakout above the 30-week moving average before buying.",
+      adviceHeadline: "Bottoming Out — Price Moving Sideways",
+      adviceDetail: `The stock is moving sideways (${Math.abs(pVsMa)}% ${side} its 30-week average). The price is trying to stabilize and form a floor, but a clear upward trend has not started yet.`,
+      adviceAction: "Wait for the stock to clearly break upward with strong trading activity before buying.",
     },
     2: {
-      adviceHeadline: "Advancing Phase — Strong Uptrend Confirmed",
-      adviceDetail: `Price is ${pVsMa}% above a ${slopeDir} 30-week moving average. This is the institutional markup phase where the strongest compounding occurs.`,
-      adviceAction: "Hold or add on dips, using the 30-week average as your trailing stop-loss.",
+      adviceHeadline: "Healthy Uptrend — Strong Buyer Demand",
+      adviceDetail: `The stock is trading ${pVsMa}% above its ${slopeDir} 30-week average. Buyers are in control, and the stock is showing steady upward momentum.`,
+      adviceAction: "A good time to hold or add shares whenever the price dips slightly.",
     },
     3: {
-      adviceHeadline: "Topping Phase — Momentum is Exhausting",
-      adviceDetail: `Price is flattening after an extended rally, trading near an unstable 30-week average. Distribution patterns suggest institutional profit-taking.`,
-      adviceAction: "Consider booking partial profits and tightening stop-losses; avoid fresh entries.",
+      adviceHeadline: "Cooling Off — Upward Momentum Is Fading",
+      adviceDetail: `After a strong run, the price is flattening out near its highs. Investors are starting to take profits off the table rather than buying aggressively.`,
+      adviceAction: "Consider locking in some profits and avoid rushing to buy more at this level.",
     },
     4: {
-      adviceHeadline: "Declining Phase — Severe Downtrend in Place",
-      adviceDetail: `Price is ${Math.abs(pVsMa)}% below a falling 30-week average. The stock is in a persistent markdown phase with high risk of capital erosion.`,
-      adviceAction: "Avoid buying or catch falling knives until a sound base (Stage 1) establishes.",
+      adviceHeadline: "Downtrend Alert — Heavy Selling Pressure",
+      adviceDetail: `The stock is trading ${Math.abs(pVsMa)}% below its falling 30-week average. The price has been steadily declining, and buying now carries a high risk of losing money.`,
+      adviceAction: "Avoid buying until the stock stops falling and shows signs of stabilizing.",
     },
   };
   return templates[stage] || templates[1];
@@ -172,25 +172,25 @@ function generateFactorsFromStage(stageData, ticker) {
   return [
     {
       name: "Price vs 30-Week Average",
-      desc: `Currently ${Math.abs(priceVsMaPct)}% ${priceVsMaPct >= 0 ? "above" : "below"} the institutional baseline.`,
+      desc: `Currently ${Math.abs(priceVsMaPct)}% ${priceVsMaPct >= 0 ? "above" : "below"} its long-term average price.`,
       type: "financial",
       impact: Math.max(-10, Math.min(10, Math.round(priceVsMaPct / 2))),
     },
     {
-      name: "Moving Average Trend Slope",
-      desc: `The 30-week average is ${maSlopePct >= 0 ? "rising" : "falling"} ${Math.abs(maSlopePct)}% over the last 5 weeks.`,
+      name: "Trend Direction (Slope)",
+      desc: `The 30-week trend is ${maSlopePct >= 0 ? "heading up" : "heading down"} ${Math.abs(maSlopePct)}% over the last 5 weeks.`,
       type: "financial",
       impact: Math.max(-10, Math.min(10, Math.round(maSlopePct * 2))),
     },
     {
       name: "Market Cycle Stage",
-      desc: `Classified as Stage ${stage} (${stageData.stageLabel}) in the Weinstein cycle.`,
+      desc: `Currently in Stage ${stage} (${stageData.stageLabel}) of the market cycle.`,
       type: "macro",
       impact: stage === 2 ? 8 : stage === 4 ? -8 : 1,
     },
     {
-      name: "Institutional EMA Agreement",
-      desc: stageData.emaAgreement ? "Yearly 52-week EMA confirms the directional trend." : "52-week EMA diverges from shorter trend.",
+      name: "1-Year Trend Agreement",
+      desc: stageData.emaAgreement ? "The 1-year long-term moving average confirms this trend direction." : "The 1-year long-term average shows mixed signals against the shorter trend.",
       type: "sentiment",
       impact: stageData.emaAgreement ? 5 : -4,
     }
@@ -830,7 +830,16 @@ function renderRangeBar() {
   el("range52Low").textContent = `${currSym(state.currency)}${fmt(low)}`;
   el("range52High").textContent = `${currSym(state.currency)}${fmt(high)}`;
   el("rangeCurrentLbl").textContent = `Current: ${currSym(state.currency)}${fmt(current)}`;
-  el("rangeBarBadge").textContent = `${pct.toFixed(0)}% of 52W Range`;
+  
+  let badgeText = `${pct.toFixed(0)}% of Range`;
+  if (pct <= 25) {
+    badgeText = `Near 1-Year Low (${pct.toFixed(0)}%)`;
+  } else if (pct >= 75) {
+    badgeText = `Near 1-Year High (${pct.toFixed(0)}%)`;
+  } else {
+    badgeText = `Mid-Range (${pct.toFixed(0)}%)`;
+  }
+  el("rangeBarBadge").textContent = badgeText;
   el("rangeFill").style.width = `${pct}%`;
   el("rangePin").style.left = `${pct}%`;
 }
@@ -863,10 +872,10 @@ function renderStageCard() {
   const emaNote = el("stageEmaNote");
   if (s.emaAgreement) {
     emaNote.className = "stage-ema-note agree";
-    emaNote.textContent = `✓ High Conviction: 52-week (yearly) EMA aligns with the 30-week trend (${s.priceVsEmaPct >= 0 ? "above" : "below"} average).`;
+    emaNote.textContent = `✓ Strong Trend Alignment: The 1-year long-term trend confirms the current direction (${s.priceVsEmaPct >= 0 ? "above" : "below"} average).`;
   } else {
     emaNote.className = "stage-ema-note disagree";
-    emaNote.textContent = `⚠ Caution: 52-week EMA diverges from the 30-week trend. Market is in transition.`;
+    emaNote.textContent = `⚠ Mixed Signals: The 1-year long-term trend differs from the recent move. Market is in transition.`;
   }
 
   // 3. Stage Chart
@@ -904,26 +913,29 @@ function renderKeyLevels() {
   card.style.display = "block";
 
   el("levelSupport").textContent = `${currSym(state.currency)}${fmt(s.support)}`;
-  el("levelSupportDist").textContent = `Safety Cushion: -${s.downsidePct}% downside`;
+  el("levelSupportDist").textContent = `Safety Cushion: ${s.downsidePct}% to floor`;
 
   el("levelResistance").textContent = `${currSym(state.currency)}${fmt(s.resistance)}`;
-  el("levelResistanceDist").textContent = `Upside Target: +${s.upsidePct}%`;
+  el("levelResistanceDist").textContent = `Upside Target: +${s.upsidePct}% to ceiling`;
 
-  el("riskRewardBadge").textContent = `R:R  1 : ${s.riskReward}`;
+  el("riskRewardBadge").textContent = `Risk:Reward  1 : ${s.riskReward}`;
 
   // Smart action scenario advice
   const buyEl = el("scenarioBuy");
   const holdEl = el("scenarioHold");
 
   if (s.stage === 2) {
-    buyEl.textContent = `Setup favors breakout continuation. Look to accumulate above ${currSym(state.currency)}${fmt(s.resistance)} or on pullbacks near support at ${currSym(state.currency)}${fmt(s.support)}.`;
-    holdEl.textContent = `Maintain long positions. Trail your protective stop-loss just beneath support around ${currSym(state.currency)}${fmt(s.support * 0.98)}.`;
+    buyEl.textContent = `Strong upward trend. Good time to buy if the price breaks above the ceiling at ${currSym(state.currency)}${fmt(s.resistance)}, or if it dips near the floor at ${currSym(state.currency)}${fmt(s.support)}.`;
+    holdEl.textContent = `Hold your shares and let profits grow. You can keep a safety exit just under the floor around ${currSym(state.currency)}${fmt(s.support * 0.98)} to protect your gains.`;
   } else if (s.stage === 4) {
-    buyEl.textContent = `High risk of capital erosion. Avoid aggressive long entries until a confirmed accumulation base forms.`;
-    holdEl.textContent = `Downside momentum is active. Consider trimming exposure or setting tight stop-losses near resistance at ${currSym(state.currency)}${fmt(s.resistance)}.`;
+    buyEl.textContent = `High risk of losing money. Avoid buying new shares until the stock stops falling and stabilizes.`;
+    holdEl.textContent = `Selling pressure remains high. Consider selling some shares to protect your capital, or keep a strict safety exit near ${currSym(state.currency)}${fmt(s.resistance)}.`;
+  } else if (s.stage === 3) {
+    buyEl.textContent = `The rally is slowing down near recent highs. Avoid rushing to buy until a clear upward direction resumes.`;
+    holdEl.textContent = `Consider locking in some profits. Keep a close safety exit near the floor at ${currSym(state.currency)}${fmt(s.support)}.`;
   } else {
-    buyEl.textContent = `Stock is consolidating sideways. Wait for price to decisively breach ${currSym(state.currency)}${fmt(s.resistance)} with heavy volume before entering.`;
-    holdEl.textContent = `Hold existing core positions. Expect chop between ${currSym(state.currency)}${fmt(s.support)} and ${currSym(state.currency)}${fmt(s.resistance)}.`;
+    buyEl.textContent = `The stock is moving sideways and trying to form a bottom. Wait for the price to clearly break above the ceiling at ${currSym(state.currency)}${fmt(s.resistance)} before buying.`;
+    holdEl.textContent = `Hold your current shares if you already own them. Expect the price to bounce between ${currSym(state.currency)}${fmt(s.support)} and ${currSym(state.currency)}${fmt(s.resistance)}.`;
   }
 }
 

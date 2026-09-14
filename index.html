@@ -53,15 +53,18 @@
       <div id="errorBox" class="error-box" style="display:none;"></div>
 
       <div id="content" style="display:none;">
-        <!-- 52-Week Range Bar -->
+        <!-- Stat row -->
+        <div class="stat-row" id="statRow"></div>
+
+        <!-- 52-Week Range Bar (Just above AI Verdict) -->
         <div class="card range-bar-card" id="rangeBarCard" style="display:none;">
           <div class="range-bar-top">
-            <span class="range-bar-title">52-Week Price Range</span>
+            <span class="range-bar-title">1-Year Price Range</span>
             <span class="range-bar-badge" id="rangeBarBadge">—</span>
           </div>
           <div class="range-slider-wrap">
             <div class="range-col">
-              <span class="range-lbl">52W Low</span>
+              <span class="range-lbl">1-Year Low</span>
               <span class="range-num" id="range52Low">—</span>
             </div>
             <div class="range-track-box">
@@ -72,19 +75,16 @@
               <div class="range-current-lbl" id="rangeCurrentLbl">Current: —</div>
             </div>
             <div class="range-col text-right">
-              <span class="range-lbl">52W High</span>
+              <span class="range-lbl">1-Year High</span>
               <span class="range-num" id="range52High">—</span>
             </div>
           </div>
         </div>
 
-        <!-- Stat row -->
-        <div class="stat-row" id="statRow"></div>
-
         <!-- AI Verdict -->
         <div id="aiLoading" class="loading-pulse" style="display:none;">
           <div class="spinner"></div>
-          <span>Running AI analysis…</span>
+          <span>Running AI research analysis…</span>
         </div>
         <div id="verdictCard"></div>
 
@@ -96,13 +96,13 @@
               <span class="stage-badge" id="stageBadge">Stage —</span>
             </div>
             <div class="stage-stepper" id="stageStepper">
-              <span class="step-pill" data-step="1">1. Basing</span>
+              <span class="step-pill" data-step="1">1. Bottoming</span>
               <span class="step-arrow">→</span>
-              <span class="step-pill" data-step="2">2. Advancing</span>
+              <span class="step-pill" data-step="2">2. Uptrend</span>
               <span class="step-arrow">→</span>
-              <span class="step-pill" data-step="3">3. Topping</span>
+              <span class="step-pill" data-step="3">3. Peak</span>
               <span class="step-arrow">→</span>
-              <span class="step-pill" data-step="4">4. Declining</span>
+              <span class="step-pill" data-step="4">4. Downtrend</span>
             </div>
           </div>
           <div class="stage-desc" id="stageDesc"></div>
@@ -124,17 +124,17 @@
         <!-- Key Levels & Action Plan -->
         <div class="card levels-card" id="levelsCard" style="display:none;">
           <div class="card-label-row">
-            <span class="card-label" style="margin-bottom:0;">Key Levels & Action Plan</span>
+            <span class="card-label" style="margin-bottom:0;">Key Price Levels & Action Guide</span>
             <span class="rr-badge" id="riskRewardBadge">R:R —</span>
           </div>
           <div class="levels-grid">
             <div class="level-box support-box">
-              <div class="level-tag">🟢 Next Support (Floor)</div>
+              <div class="level-tag">🟢 Price Floor (Support)</div>
               <div class="level-price" id="levelSupport">—</div>
               <div class="level-sub" id="levelSupportDist">—</div>
             </div>
             <div class="level-box resistance-box">
-              <div class="level-tag">🔴 Next Resistance (Ceiling)</div>
+              <div class="level-tag">🔴 Price Ceiling (Resistance)</div>
               <div class="level-price" id="levelResistance">—</div>
               <div class="level-sub" id="levelResistanceDist">—</div>
             </div>
