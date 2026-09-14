@@ -676,6 +676,8 @@ applyBtn.addEventListener("click", () => {
 // ── Core Data Loading with In-Memory Caching ──────────────────────────
 async function loadTicker(ticker) {
   state.ticker = ticker;
+  state.timeframe = "1y";
+  document.querySelectorAll(".tf-btn").forEach(b => b.classList.toggle("active", b.dataset.range === "1y"));
   el("content").style.display = "none";
   el("errorBox").style.display = "none";
   el("loadingMain").style.display = "flex";
@@ -766,6 +768,13 @@ function renderAllUI() {
   renderPriceChart();
   renderVolumeChart();
   renderNews();
+
+  if (state.analysis) {
+    renderVerdict();
+    updateSignalStat();
+    renderForecastChart();
+    renderFactors();
+  }
 }
 
 // ── Render Ticker Bar & Peer Chips ────────────────────────────────────
