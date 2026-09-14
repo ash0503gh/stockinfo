@@ -60,7 +60,7 @@ async def search_stocks(q: str = Query(..., min_length=1)):
 # ── Chart ──────────────────────────────────────────────────────────────
 
 @app.get("/api/chart/{ticker}")
-async def get_chart(ticker: str, interval: str = "1wk", range: str = "1y"):
+async def get_chart(ticker: str, interval: str = "1d", range: str = "1y"):
     def _get_history():
         tkr = yf.Ticker(ticker)
         try:
@@ -68,21 +68,34 @@ async def get_chart(ticker: str, interval: str = "1wk", range: str = "1y"):
         except Exception:
             currency = "USD"
 
-        hist = tkr.history(period=range, interval=interval)
+        # Reliable 52W high and low from fast_info (independent of requested timeframe)
+        high_52 = None
+        low_52 = None
+        try:
+            high_52 = round(float(tkr.fast_info.get("yearHigh")), 2) if tkr.fast_info.get("yearHigh") else None
+            low_52 = round(float(tkr.fast_info.get("yearLow")), 2) if tkr.fast_info.get("yearLow") else None
+        except Exception:
+            pass
 
-        # Weekly/monthly bars from yfinance are labeled by the START of
-        # their period (e.g. Monday for a weekly bar). A small 5d
-        # daily-granularity fetch gets the true most-recent trading day
-        # and its exact close, independent of the chart's interval.
+        # Fetch chart series and clean missing/zero values
+        hist = tkr.history(period=range, interval=interval)
+        if not hist.empty:
+            hist = hist.dropna(subset=["Close"])
+            hist = hist[hist["Close"] > 0]
+
+        # Recent daily probe to ensure we have the exact latest trading close
         try:
             daily = tkr.history(period="5d", interval="1d")
+            if not daily.empty:
+                daily = daily.dropna(subset=["Close"])
+                daily = daily[daily["Close"] > 0]
         except Exception:
             daily = None
 
-        return hist, currency, daily
+        return hist, currency, daily, high_52, low_52
 
     try:
-        hist, currency, daily = await asyncio.to_thread(_get_history)
+        hist, currency, daily, high_52, low_52 = await asyncio.to_thread(_get_history)
     except Exception as e:
         raise HTTPException(502, f"Failed to fetch chart: {str(e)}")
 
@@ -91,25 +104,45 @@ async def get_chart(ticker: str, interval: str = "1wk", range: str = "1y"):
 
     history = []
     for index, row in hist.iterrows():
+        c = round(float(row["Close"]), 2)
+        if pd.isna(c) or c <= 0:
+            continue
         history.append({
             "date": index.strftime("%Y-%m-%d"),
-            "open": round(row["Open"], 2) if pd.notna(row.get("Open")) else None,
-            "close": round(row["Close"], 2),
+            "open": round(float(row["Open"]), 2) if pd.notna(row.get("Open")) and row["Open"] > 0 else c,
+            "close": c,
             "volume": int(row["Volume"]) if "Volume" in row and pd.notna(row["Volume"]) else 0,
         })
+
+    if not history:
+        raise HTTPException(404, f"No valid price data for {ticker}")
 
     last_close = None
     last_close_date = None
     if daily is not None and not daily.empty:
         last_close = round(float(daily["Close"].iloc[-1]), 2)
         last_close_date = daily.index[-1].strftime("%Y-%m-%d")
+        # Ensure the final point in history aligns with the true last close and date
+        history[-1]["close"] = last_close
+        history[-1]["date"] = last_close_date
     elif history:
         last_close = history[-1]["close"]
         last_close_date = history[-1]["date"]
 
-    closes = [h["close"] for h in history]
-    high_52 = round(max(closes), 2) if closes else last_close
-    low_52 = round(min(closes), 2) if closes else last_close
+    start_close = history[0]["close"] if history else last_close
+    start_date = history[0]["date"] if history else last_close_date
+
+    period_change_pct = None
+    if start_close and last_close and start_close > 0:
+        period_change_pct = round(((last_close - start_close) / start_close) * 100, 2)
+
+    # Fallback for 52W high/low if fast_info wasn't available
+    if high_52 is None or low_52 is None:
+        closes = [h["close"] for h in history]
+        if high_52 is None:
+            high_52 = round(max(closes), 2) if closes else last_close
+        if low_52 is None:
+            low_52 = round(min(closes), 2) if closes else last_close
 
     return {
         "ticker": ticker,
@@ -118,6 +151,9 @@ async def get_chart(ticker: str, interval: str = "1wk", range: str = "1y"):
         "history": history,
         "lastClose": last_close,
         "lastCloseDate": last_close_date,
+        "startClose": start_close,
+        "startDate": start_date,
+        "periodChangePct": period_change_pct,
         "high52": high_52,
         "low52": low_52,
     }
@@ -182,6 +218,9 @@ def _ema_alignment_adjustment(price_vs_ma_pct: float, ma_slope_pct: float,
 def compute_stage_data(ticker: str):
     tkr = yf.Ticker(ticker)
     hist = tkr.history(period="3y", interval="1wk")
+    if not hist.empty:
+        hist = hist.dropna(subset=["Close"])
+        hist = hist[hist["Close"] > 0]
     if hist.empty or len(hist) < 35:
         raise HTTPException(404, f"Not enough weekly history for {ticker} to compute stage")
 

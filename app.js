@@ -54,11 +54,11 @@ const FACTOR_POOL = [
 ];
 
 const TIMEFRAMES = [
-  { label: "6M", range: "6mo", interval: "1wk" },
-  { label: "1Y", range: "1y", interval: "1wk" },
-  { label: "3Y", range: "3y", interval: "1mo" },
-  { label: "5Y", range: "5y", interval: "1mo" },
-  { label: "10Y", range: "10y", interval: "1mo" },
+  { label: "6M", range: "6mo", interval: "1d" },
+  { label: "1Y", range: "1y", interval: "1d" },
+  { label: "3Y", range: "3y", interval: "1wk" },
+  { label: "5Y", range: "5y", interval: "1wk" },
+  { label: "10Y", range: "10y", interval: "1wk" },
 ];
 
 // Popular peer groups for instant quick-comparison
@@ -683,7 +683,7 @@ async function loadTicker(ticker) {
   el("loadingMain").style.display = "flex";
   el("loadingMainText").textContent = `Analyzing ${ticker}…`;
 
-  const chartKey = `${ticker}|${state.timeframe}|1wk`;
+  const chartKey = `${ticker}|1y|1d`;
   const cachedChart = chartCache.get(chartKey);
   const cachedMeta = tickerCache.get(ticker);
 
@@ -709,7 +709,7 @@ async function loadTicker(ticker) {
 
   try {
     const [cRes, sRes, nRes] = await Promise.all([
-      fetch(`/api/chart/${ticker}?range=1y&interval=1wk`),
+      fetch(`/api/chart/${ticker}?range=1y&interval=1d`),
       fetch(`/api/stage/${ticker}`),
       fetch(`/api/news/${ticker}`),
     ]);
@@ -1052,10 +1052,16 @@ function initTimeframeButtons() {
       const interval = newBtn.dataset.interval;
       state.timeframe = range;
 
+      const badge = el("priceChangeBadge");
+      if (badge) badge.textContent = "…";
+
       const chartKey = `${state.ticker}|${range}|${interval}`;
       const cached = chartCache.get(chartKey);
       if (cached && isFresh(cached.timestamp)) {
         state.history = cached.data.history || [];
+        if (cached.data.lastClose) {
+          state.trueLastClose = { close: cached.data.lastClose, date: cached.data.lastCloseDate };
+        }
         renderPriceChart();
         renderVolumeChart();
         return;
@@ -1066,6 +1072,9 @@ function initTimeframeButtons() {
         if (!res.ok) throw new Error("Failed to fetch timeframe");
         const data = await res.json();
         state.history = data.history || [];
+        if (data.lastClose) {
+          state.trueLastClose = { close: data.lastClose, date: data.lastCloseDate };
+        }
         chartCache.set(chartKey, { data, timestamp: Date.now() });
         renderPriceChart();
         renderVolumeChart();
@@ -1087,21 +1096,30 @@ function renderPriceChart() {
   const labelCount = Math.min(6, n);
   const step = Math.max(1, Math.floor(n / labelCount));
   const xLabels = dates.map((d, i) => {
-    if (i % step === 0 || i === n - 1) {
-      const dt = new Date(d);
-      const mon = dt.toLocaleString("en", { month: "short" });
-      const yr = "'" + String(dt.getFullYear()).slice(-2);
-      return `${mon} ${yr}`;
+    if ((i % step === 0 && (n - 1 - i) >= Math.floor(step * 0.5)) || i === n - 1) {
+      const parts = d.split("-");
+      if (parts.length === 3) {
+        const dt = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        const mon = dt.toLocaleString("en", { month: "short" });
+        const yr = "'" + String(dt.getFullYear()).slice(-2);
+        return `${mon} ${yr}`;
+      }
     }
     return "";
   });
 
   const badge = el("priceChangeBadge");
   if (badge && data.length >= 2) {
-    const pct = ((data[data.length - 1] - data[0]) / data[0] * 100).toFixed(1);
-    const isUp = pct >= 0;
-    badge.textContent = `${isUp ? "▲" : "▼"} ${Math.abs(pct)}%`;
-    badge.className = "price-change-badge " + (isUp ? "positive" : "negative");
+    const firstClose = data[0];
+    const lastClose = data[data.length - 1];
+    if (firstClose != null && firstClose > 0 && lastClose != null && lastClose > 0) {
+      const pct = ((lastClose - firstClose) / firstClose * 100).toFixed(1);
+      const isUp = parseFloat(pct) >= 0;
+      badge.textContent = `${isUp ? "▲" : "▼"} ${Math.abs(parseFloat(pct))}%`;
+      badge.className = "price-change-badge " + (isUp ? "positive" : "negative");
+    } else {
+      badge.textContent = "—";
+    }
   }
 
   drawLineChart(canvas, data, {
