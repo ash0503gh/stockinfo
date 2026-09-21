@@ -1302,8 +1302,8 @@ function renderVerdict() {
         <div class="verdict-action">${escapeHtml(a.adviceAction)}</div>
         ${alertHtml}
         <div class="ai-source-line">
-          <span class="ai-source-dot" style="background:${state.aiSource === "jev" ? COLORS.purple : state.aiSource === "gemini" ? COLORS.green : COLORS.cyan}"></span>
-          ${state.aiSource === "jev" ? "Jev + Gemini AI" : state.aiSource === "gemini" ? "Gemini AI" : "Stan Weinstein Cycle Model"} · Not financial advice
+          <span class="ai-source-dot" style="background:${COLORS.purple}"></span>
+          AI-Powered Analysis · Not financial advice
         </div>
       </div>
     </div>
