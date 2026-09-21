@@ -724,7 +724,8 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
             "momentum": round(peer_mom, 2),
             "confidence": max(35, min(95, peer_conf)),
         })
-    peer_ranking.sort(key=lambda x: x["confidence"], reverse=True)
+    signal_weight = {"STRONG BUY": 5, "BUY": 4, "HOLD": 3, "SELL": 2, "STRONG SELL": 1}
+    peer_ranking.sort(key=lambda x: (signal_weight.get(x["signal"], 3), x["confidence"]), reverse=True)
     for rank_idx, pr in enumerate(peer_ranking, 1):
         pr["rank"] = rank_idx
 
@@ -738,123 +739,35 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
     }
 
 
-async def _gemini_prose(req: AnalyzeRequest, jev_result: dict) -> dict:
-    """Call Gemini for rich advisory text and forecast curve, using Jev's structured decisions as context."""
-    if not GEMINI_API_KEY:
-        return {}
-
-    news_block = "\n".join(f"- {h}" for h in req.newsHeadlines[:15]) or "No recent headlines."
-    factors_block = "\n".join(
-        f"- {f['name']}: {f['desc']} (impact: {f['impact']})" for f in jev_result.get("factors", [])
-    )
-
-    prompt = f"""You are a helpful, clear financial advisor explaining stock analysis to everyday retail investors and beginners. Analyze the stock {req.ticker} using the data below and return ONLY valid JSON (no markdown, no backticks).
-
-Current data:
-- Price: {req.currency} {req.currentPrice}
-- 1-Year Return: {req.oneYearReturn if req.oneYearReturn is not None else 'N/A'}%
-- Monthly Change: {req.monthlyChange if req.monthlyChange is not None else 'N/A'}%
-- Avg Monthly Volume: {req.avgVolume if req.avgVolume is not None else 'N/A'}
-- Stan Weinstein Stage: {req.stage} ({req.stageLabel})
-- Price vs 30-Week MA: {req.priceVsMaPct}%
-- AI Signal: {jev_result['signal']} ({jev_result['confidence']}% confidence)
-
-Key factors identified:
-{factors_block}
-
-Recent headlines:
-{news_block}
-
-CRITICAL BEGINNER-FRIENDLY TONE & VOCABULARY RULES:
-- Write in simple, clear, conversational English that anyone without a finance background can easily understand.
-- DO NOT use confusing Wall Street jargon or technical trader terms.
-- adviceHeadline: 6-10 words, bold and clear verdict.
-- adviceDetail: 2-3 simple, friendly sentences explaining why, referencing the stage, news sentiment, and key factors.
-- adviceAction: 1 actionable, practical sentence.
-
-Return this exact JSON schema:
-{{
-  "forecastCurve": [<12 numbers: predicted monthly closing prices for the next 12 months starting near {req.currentPrice}>],
-  "adviceHeadline": "<short bold verdict>",
-  "adviceDetail": "<2-3 simple sentences with context>",
-  "adviceAction": "<1 simple, actionable sentence>"
-}}
-
-The forecast should reflect the {jev_result['signal']} signal direction."""
-
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 512,
-            "responseMimeType": "application/json",
-        },
-    }
-
-    try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(f"{GEMINI_URL}?key={GEMINI_API_KEY}", json=payload, timeout=15)
-        if r.status_code != 200:
-            return {}
-        data = r.json()
-        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        return json.loads(text)
-    except Exception:
-        return {}
-
-
 @app.post("/api/analyze")
 async def analyze_stock(req: AnalyzeRequest):
-    if not TYPESAFE_API_KEY:
-        if not GEMINI_API_KEY:
-            raise HTTPException(503, "Neither Jev nor Gemini API key configured")
-        return await _legacy_gemini_analyze(req)
+    if not GEMINI_API_KEY:
+        raise HTTPException(503, "Gemini API key not configured")
 
-    try:
-        jev_result = await _jev_analyze(req)
-    except Exception as e:
-        if GEMINI_API_KEY:
-            return await _legacy_gemini_analyze(req)
-        raise HTTPException(502, f"Jev analysis failed: {str(e)}")
+    # Run Gemini (verdict) and Jev (peer/news) in parallel
+    gemini_task = _legacy_gemini_analyze(req)
 
-    prose = await _gemini_prose(req, jev_result)
+    jev_extras = {}
+    if TYPESAFE_API_KEY:
+        async def _get_jev():
+            try:
+                return await _jev_analyze(req)
+            except Exception:
+                return {}
+        jev_task = _get_jev()
+        gemini_result, jev_result = await asyncio.gather(gemini_task, jev_task)
+        jev_extras = jev_result
+    else:
+        gemini_result = await gemini_task
 
-    if not prose.get("forecastCurve"):
-        slope = (req.maSlopePct or 0)
-        monthly_drift = max(-0.04, min(0.04, (slope / 5 / 100) * 4.33))
-        curve = [req.currentPrice]
-        for i in range(12):
-            curve.append(round(curve[-1] * (1 + monthly_drift), 2))
-        prose["forecastCurve"] = curve
+    # Gemini drives the verdict (signal, confidence, headline, detail, action, factors, forecast)
+    result = gemini_result
+    result["jevPowered"] = bool(jev_extras)
 
-    if not prose.get("adviceHeadline"):
-        stage_advice = {
-            1: "Bottoming Out — Price Moving Sideways",
-            2: "Healthy Uptrend — Strong Buyer Demand",
-            3: "Cooling Off — Upward Momentum Is Fading",
-            4: "Downtrend Alert — Heavy Selling Pressure",
-        }
-        prose["adviceHeadline"] = stage_advice.get(req.stage, "Mixed Signals — Watch and Wait")
+    # Add Jev's peer ranking and news scoring on top
+    result["newsScoring"] = jev_extras.get("newsScoring", [])
+    result["peerRanking"] = jev_extras.get("peerRanking", [])
 
-    if not prose.get("adviceDetail"):
-        prose["adviceDetail"] = f"The stock is in Stage {req.stage} ({req.stageLabel}). Jev rates this as {jev_result['signal']} with {jev_result['confidence']}% confidence."
-
-    if not prose.get("adviceAction"):
-        action_map = {
-            "STRONG BUY": "Consider buying — strong indicators across the board.",
-            "BUY": "A reasonable time to buy or add to your position.",
-            "HOLD": "Hold your position and wait for clearer signals.",
-            "SELL": "Consider reducing your position to limit risk.",
-            "STRONG SELL": "Avoid buying — wait for the price to stabilize.",
-        }
-        prose["adviceAction"] = action_map.get(jev_result["signal"], "Watch and wait for clearer signals.")
-
-    result = {**jev_result, **prose}
-    # Ensure newsScoring and peerRanking from Jev are in the response
-    if "newsScoring" not in result:
-        result["newsScoring"] = []
-    if "peerRanking" not in result:
-        result["peerRanking"] = []
     return result
 
 
