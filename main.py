@@ -670,7 +670,9 @@ async def analyze_stock(req: AnalyzeRequest):
     result = gemini_result
     result["jevPowered"] = bool(jev_extras)
 
-    # Override confidence with deterministic stage-based calculation
+    # Override signal and confidence with deterministic stage-based calculation
+    if req.computedSignal:
+        result["signal"] = req.computedSignal
     if req.computedConfidence is not None:
         result["confidence"] = req.computedConfidence
 
@@ -792,13 +794,13 @@ async def get_fundamentals(ticker: str):
 # ── Watchlist Analyze ─────────────────────────────────────────────────
 
 def _fetch_ticker_summary(ticker: str) -> dict:
-    """Fetch basic price, return, and stage data for a watchlist ticker."""
+    """Fetch price, return, stage, signal, confidence — same logic as compute_stage_data."""
     tkr = yf.Ticker(ticker)
-    hist = tkr.history(period="1y", interval="1wk")
+    hist = tkr.history(period="3y", interval="1wk")
     if not hist.empty:
         hist = hist.dropna(subset=["Close"])
         hist = hist[hist["Close"] > 0]
-    if hist.empty or len(hist) < 5:
+    if hist.empty or len(hist) < 35:
         return None
     try:
         currency = tkr.fast_info.get("currency", "USD")
@@ -806,27 +808,29 @@ def _fetch_ticker_summary(ticker: str) -> dict:
         currency = "USD"
     closes = hist["Close"].tolist()
     last_close = round(closes[-1], 2)
-    first_close = closes[0]
-    yr_return = round((last_close - first_close) / first_close * 100, 2) if first_close > 0 else 0.0
     close_series = pd.Series(closes)
-    window = min(30, len(closes) - 1)
-    ma_series = close_series.rolling(window=window).mean()
-    if pd.isna(ma_series.iloc[-1]):
-        stage = 1
-        price_vs_ma = 0.0
-        ma_slope = 0.0
-    else:
-        last_ma = ma_series.iloc[-1]
-        ma_5_ago = ma_series.iloc[-6] if len(ma_series) > 5 else ma_series.iloc[0]
-        price_vs_ma = round((last_close - last_ma) / last_ma * 100, 2)
-        ma_slope = round((last_ma - ma_5_ago) / ma_5_ago * 100, 2) if ma_5_ago else 0.0
-        stage = _classify_stage(price_vs_ma, ma_slope)
+    ma_series = close_series.rolling(window=30).mean()
+    ema_series = close_series.ewm(span=52, adjust=False).mean()
+    last_ma = ma_series.iloc[-1]
+    ma_5_ago = ma_series.iloc[-6] if len(ma_series) > 5 else ma_series.iloc[0]
+    last_ema = ema_series.iloc[-1]
+    ema_5_ago = ema_series.iloc[-6] if len(ema_series) > 5 else ema_series.iloc[0]
+    price_vs_ma = round((last_close - last_ma) / last_ma * 100, 2)
+    ma_slope = round((last_ma - ma_5_ago) / ma_5_ago * 100, 2) if ma_5_ago else 0.0
+    price_vs_ema = round((last_close - last_ema) / last_ema * 100, 2)
+    ema_slope = round((last_ema - ema_5_ago) / ema_5_ago * 100, 2) if ema_5_ago else 0.0
+    stage = _classify_stage(price_vs_ma, ma_slope)
     signal = _signal_from_stage(stage, price_vs_ma)
-    confidence = _confidence_from_stage(price_vs_ma, ma_slope, stage)
+    base_conf = _confidence_from_stage(price_vs_ma, ma_slope, stage)
+    ema_adj = _ema_alignment_adjustment(price_vs_ma, ma_slope, price_vs_ema, ema_slope)
+    confidence = int(max(35, min(95, round(base_conf + ema_adj))))
+    # 1Y return from last 52 weeks
+    recent_52 = closes[-52:] if len(closes) >= 52 else closes
+    yr_return = round((last_close - recent_52[0]) / recent_52[0] * 100, 2) if recent_52[0] > 0 else 0.0
+    # Monthly change from ~4 weeks ago
     monthly_change_pct = 0.0
     if len(closes) >= 5:
-        month_ago = closes[-5] if len(closes) >= 5 else closes[0]
-        monthly_change_pct = round((last_close - month_ago) / month_ago * 100, 2) if month_ago else 0.0
+        monthly_change_pct = round((last_close - closes[-5]) / closes[-5] * 100, 2) if closes[-5] else 0.0
     return {
         "ticker": ticker,
         "lastClose": last_close,
@@ -863,45 +867,7 @@ async def analyze_watchlist(req: WatchlistRequest):
     if not valid:
         return {"results": []}
 
-    # One Jev call for all tickers if API key is set
-    if TYPESAFE_API_KEY and valid:
-        try:
-            state_lines = [
-                f"[{i}] {s['ticker']}: {s['currency']} {s['lastClose']}, 1Y Return: {s['yrReturn']}%, Stage {s['stage']} ({s['stageLabel']})"
-                for i, s in enumerate(valid)
-            ]
-            state_text = "Watchlist stocks:\n" + "\n".join(state_lines)
-
-            questions = {}
-            for i, s in enumerate(valid):
-                questions[f"signal_{i}"] = Choice(
-                    instructions=f"What trading signal is appropriate for stock [{i}] ({s['ticker']})?",
-                    criteria={
-                        "BUY": "Uptrend or bottoming",
-                        "HOLD": "Mixed signals",
-                        "SELL": "Weakening",
-                    },
-                )
-                questions[f"momentum_{i}"] = Noul(
-                    instructions=f"Is stock [{i}] ({s['ticker']})'s momentum currently bullish?",
-                )
-
-            async with AsyncTypeSafeClient() as client:
-                response = await client.system_one(state=state_text, questions=questions)
-
-            results = []
-            for i, s in enumerate(valid):
-                sig = response.choices[f"signal_{i}"]
-                results.append({
-                    **s,
-                    "signal": sig.choice,
-                })
-            return {"results": results}
-        except Exception:
-            pass
-
-    # Fallback without Jev — confidence already in summary from stage data
-    return {"results": list(valid)}
+    return {"results": valid}
 
 
 @app.get("/health")
