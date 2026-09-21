@@ -1199,13 +1199,15 @@ async function runAiAnalysis() {
         stage: s ? s.stage : undefined,
         stageLabel: s ? s.stageLabel : undefined,
         priceVsMaPct: s ? s.priceVsMaPct : undefined,
+        maSlopePct: s ? s.maSlopePct : undefined,
+        emaAgreement: s ? s.emaAgreement : undefined,
         computedSignal: s ? s.signal : undefined,
         computedConfidence: s ? s.confidence : undefined,
       }),
     });
     if (res.ok) {
       const d = await res.json();
-      if (d.signal && d.forecastCurve) { analysis = d; source = "gemini"; }
+      if (d.signal && d.forecastCurve) { analysis = d; source = d.jevPowered ? "jev" : "gemini"; }
     }
   } catch {}
 
@@ -1282,8 +1284,8 @@ function renderVerdict() {
         <div class="verdict-action">${escapeHtml(a.adviceAction)}</div>
         ${alertHtml}
         <div class="ai-source-line">
-          <span class="ai-source-dot" style="background:${state.aiSource === "gemini" ? COLORS.green : COLORS.cyan}"></span>
-          ${state.aiSource === "gemini" ? "Gemini AI" : "Stan Weinstein Cycle Model"} · Not financial advice
+          <span class="ai-source-dot" style="background:${state.aiSource === "jev" ? COLORS.purple : state.aiSource === "gemini" ? COLORS.green : COLORS.cyan}"></span>
+          ${state.aiSource === "jev" ? "Jev + Gemini AI" : state.aiSource === "gemini" ? "Gemini AI" : "Stan Weinstein Cycle Model"} · Not financial advice
         </div>
       </div>
     </div>
@@ -1327,7 +1329,14 @@ function renderNews() {
   if (!card || !list) return;
   if (!state.news.length) { card.style.display = "none"; return; }
   card.style.display = "block";
-  list.innerHTML = state.news.map((a) => `
+  list.innerHTML = state.news.map((a) => {
+    const sentLabel = a.sentimentScore != null
+      ? (a.sentimentScore >= 4 ? "Positive" : a.sentimentScore <= 2 ? "Negative" : "Neutral")
+      : "";
+    const sentColor = a.sentimentScore != null
+      ? (a.sentimentScore >= 4 ? COLORS.green : a.sentimentScore <= 2 ? COLORS.red : COLORS.gray)
+      : "";
+    return `
     <a href="${escapeHtml(a.link)}" target="_blank" rel="noopener noreferrer" class="news-item ${a.isImpactful ? "impactful" : ""}">
       <div class="news-title">${escapeHtml(a.title)}</div>
       <div class="news-meta">
@@ -1335,9 +1344,11 @@ function renderNews() {
         ${a.publisher && a.pubDate ? `<span style="opacity:0.4">·</span>` : ""}
         ${a.pubDate ? `<span>${new Date(a.pubDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>` : ""}
         ${a.isImpactful ? `<span class="news-impact-badge">IMPACT</span>` : ""}
+        ${sentLabel ? `<span style="color:${sentColor}; font-size:0.7rem; font-weight:600; margin-left:4px">${sentLabel}</span>` : ""}
       </div>
     </a>
-  `).join("");
+    `;
+  }).join("");
 }
 
 // ── Mobile-Safe Resize Handler ────────────────────────────────────────

@@ -12,12 +12,15 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 import pandas as pd
+from typesafe_sdk import AsyncTypeSafeClient, Choice, Noul, Score
 
 app = FastAPI(title="StockDash")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-3.8-flash"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+TYPESAFE_API_KEY = os.getenv("TYPESAFE_API_KEY", "")
 
 ALLOWED_EXCHANGES = {
     # India
@@ -418,10 +421,54 @@ async def get_news(ticker: str):
 
     deduped.sort(key=lambda x: (get_tier(x["publisher"]), -x["date"].timestamp()))
 
+    top_articles = deduped[:8]
+
+    if TYPESAFE_API_KEY and top_articles:
+        try:
+            headlines_state = "\n".join(
+                f"[{i}] {a['title']} — {a['publisher']}"
+                for i, a in enumerate(top_articles)
+            )
+            questions = {}
+            for i, a in enumerate(top_articles):
+                questions[f"impact_{i}"] = Noul(
+                    instructions=f"Could headline [{i}] significantly move a stock's price?",
+                )
+                questions[f"sentiment_{i}"] = Score(
+                    instructions=f"Sentiment of headline [{i}] for investors",
+                    criteria=[
+                        "Very negative",
+                        "Somewhat negative",
+                        "Neutral",
+                        "Somewhat positive",
+                        "Very positive",
+                    ],
+                )
+
+            async with AsyncTypeSafeClient() as client:
+                jev_resp = await client.system_one(state=headlines_state, questions=questions)
+
+            final_articles = []
+            for i, a in enumerate(top_articles):
+                impact_noul = jev_resp.nouls[f"impact_{i}"].noul
+                sentiment_score = jev_resp.scores[f"sentiment_{i}"].score
+                final_articles.append({
+                    "title": a["title"],
+                    "link": a["link"],
+                    "publisher": a["publisher"],
+                    "pubDate": a["date"].strftime("%Y-%m-%d"),
+                    "isImpactful": impact_noul > 0.6,
+                    "sentimentScore": round(sentiment_score, 2),
+                    "impactConfidence": round(impact_noul, 2),
+                })
+            return {"articles": final_articles}
+        except Exception:
+            pass
+
     impact_keywords = ["surge", "plunge", "earnings", "profit", "loss", "acquisition", "fda", "merger", "dividend", "revenue", "multibagger"]
 
     final_articles = []
-    for a in deduped[:8]:
+    for a in top_articles:
         title_lower = a["title"].lower()
         is_impactful = any(kw in title_lower for kw in impact_keywords)
         final_articles.append({
@@ -435,7 +482,7 @@ async def get_news(ticker: str):
     return {"articles": final_articles}
 
 
-# ── Gemini AI analysis endpoint ────────────────────────────────────────
+# ── Jev (TypeSafe) + Gemini Hybrid Analysis ────────────────────────────
 
 class AnalyzeRequest(BaseModel):
     ticker: str
@@ -448,15 +495,248 @@ class AnalyzeRequest(BaseModel):
     stage: Optional[int] = None
     stageLabel: Optional[str] = None
     priceVsMaPct: Optional[float] = None
+    maSlopePct: Optional[float] = None
+    emaAgreement: Optional[bool] = None
     computedSignal: Optional[str] = None
     computedConfidence: Optional[int] = None
 
 
+async def _jev_analyze(req: AnalyzeRequest) -> dict:
+    """Call Jev for structured decisions: signal, confidence, news sentiment, factor impacts."""
+    headlines_block = "\n".join(f"- {h}" for h in req.newsHeadlines[:10]) or "No recent headlines."
+
+    state_text = (
+        f"Stock: {req.ticker}\n"
+        f"Price: {req.currency} {req.currentPrice}\n"
+        f"1-Year Return: {req.oneYearReturn}%\n"
+        f"Monthly Change: {req.monthlyChange}%\n"
+        f"Avg Monthly Volume: {req.avgVolume}\n"
+        f"Weinstein Stage: {req.stage} ({req.stageLabel})\n"
+        f"Price vs 30-Week MA: {req.priceVsMaPct}%\n"
+        f"MA Slope (5-week): {req.maSlopePct}%\n"
+        f"EMA Agreement: {req.emaAgreement}\n"
+        f"Recent Headlines:\n{headlines_block}"
+    )
+
+    questions = {
+        "signal": Choice(
+            instructions="What trading signal is appropriate for this stock right now?",
+            criteria={
+                "STRONG BUY": "Stock in strong uptrend with confirming indicators, excellent entry point",
+                "BUY": "Stock trending up or bottoming with favorable risk/reward",
+                "HOLD": "Mixed signals, neither clearly bullish nor bearish",
+                "SELL": "Stock weakening, declining trend, unfavorable outlook",
+                "STRONG SELL": "Stock in strong downtrend, high risk of further losses",
+            },
+        ),
+        "news_sentiment": Score(
+            instructions="Overall sentiment of the recent news headlines for this stock",
+            criteria=[
+                "Very negative — headlines about losses, lawsuits, downgrades, or crises",
+                "Somewhat negative — cautious or mildly bearish headlines",
+                "Neutral — routine or mixed headlines",
+                "Somewhat positive — growth signals, upgrades, or positive developments",
+                "Very positive — strong earnings, breakthroughs, or major wins",
+            ],
+        ),
+        "trend_strength": Score(
+            instructions="How strong is the current price trend based on the technical data?",
+            criteria=[
+                "Very weak trend — price far below falling averages",
+                "Weak trend — price below averages or averages flattening",
+                "No clear trend — sideways movement",
+                "Moderate trend — price above rising averages",
+                "Strong trend — price well above steeply rising averages",
+            ],
+        ),
+        "risk_level": Score(
+            instructions="How risky is it to buy this stock right now?",
+            criteria=[
+                "Low risk — strong uptrend, good support levels",
+                "Moderate risk — some uncertainty but reasonable outlook",
+                "High risk — weak trend, high volatility, or bearish signals",
+            ],
+        ),
+        "news_is_material": Noul(
+            instructions="Do the recent headlines contain news that could significantly move this stock's price?",
+        ),
+        "momentum_bullish": Noul(
+            instructions="Is the stock's price momentum currently bullish based on the technical data?",
+        ),
+        "earnings_in_headlines": Noul(
+            instructions="Do any headlines mention earnings, revenue, profit, or financial results?",
+        ),
+    }
+
+    async with AsyncTypeSafeClient() as client:
+        response = await client.system_one(state=state_text, questions=questions)
+
+    signal_answer = response.choices["signal"]
+    news_score = response.scores["news_sentiment"]
+    trend_score = response.scores["trend_strength"]
+    risk_score = response.scores["risk_level"]
+    news_material = response.nouls["news_is_material"]
+    momentum = response.nouls["momentum_bullish"]
+    earnings = response.nouls["earnings_in_headlines"]
+
+    confidence = signal_answer.confidence
+
+    news_impact = round((news_score.score - 3) * 3.3)
+    trend_impact = round((trend_score.score - 3) * 3.3)
+    risk_impact = round((risk_score.score - 2) * -5)
+    momentum_impact = round((momentum.noul - 0.5) * 10)
+
+    factors = [
+        {
+            "name": "Price Trend Strength",
+            "desc": f"Technical trend rated {trend_score.score:.1f}/5 — {'strong upward momentum' if trend_score.score > 3.5 else 'weak or flat momentum' if trend_score.score < 2.5 else 'moderate momentum'}.",
+            "type": "financial",
+            "impact": max(-10, min(10, trend_impact)),
+        },
+        {
+            "name": "News Sentiment",
+            "desc": f"Recent headlines rated {news_score.score:.1f}/5 sentiment — {'positive coverage' if news_score.score > 3.5 else 'negative coverage' if news_score.score < 2.5 else 'mixed coverage'}.",
+            "type": "sentiment",
+            "impact": max(-10, min(10, news_impact)),
+        },
+        {
+            "name": "Buying Momentum",
+            "desc": f"{'Bullish' if momentum.noul > 0.6 else 'Bearish' if momentum.noul < 0.4 else 'Neutral'} momentum ({momentum.noul:.0%} probability bullish).",
+            "type": "financial",
+            "impact": max(-10, min(10, momentum_impact)),
+        },
+        {
+            "name": "Risk Assessment",
+            "desc": f"Risk level rated {risk_score.score:.1f}/3 — {'low risk entry' if risk_score.score < 1.5 else 'high risk, proceed with caution' if risk_score.score > 2.3 else 'moderate risk'}.",
+            "type": "macro",
+            "impact": max(-10, min(10, risk_impact)),
+        },
+        {
+            "name": "Market Cycle Position",
+            "desc": f"Stage {req.stage} ({req.stageLabel}) — price is {abs(req.priceVsMaPct or 0):.1f}% {'above' if (req.priceVsMaPct or 0) >= 0 else 'below'} its 30-week average.",
+            "type": "macro",
+            "impact": max(-10, min(10, round((req.priceVsMaPct or 0) / 2))),
+        },
+    ]
+
+    if news_material.noul > 0.6:
+        factors.append({
+            "name": "Breaking Developments",
+            "desc": f"Material news detected ({news_material.noul:.0%} confidence) that could move the stock price.",
+            "type": "sentiment",
+            "impact": news_impact,
+        })
+
+    if earnings.noul > 0.5:
+        factors.append({
+            "name": "Earnings News",
+            "desc": "Recent headlines mention financial results, which often drive short-term price moves.",
+            "type": "financial",
+            "impact": news_impact,
+        })
+
+    return {
+        "signal": signal_answer.choice,
+        "confidence": confidence,
+        "factors": factors,
+        "jevPowered": True,
+    }
+
+
+async def _gemini_prose(req: AnalyzeRequest, jev_result: dict) -> dict:
+    """Call Gemini only for advisory text and forecast curve, using Jev's structured decisions."""
+    if not GEMINI_API_KEY:
+        return {}
+
+    prompt = f"""You are a helpful, clear financial advisor for beginners. The stock {req.ticker} has been analyzed:
+
+Signal: {jev_result['signal']} (Confidence: {jev_result['confidence']}%)
+Price: {req.currency} {req.currentPrice}
+1-Year Return: {req.oneYearReturn}%
+Stage: {req.stage} ({req.stageLabel})
+
+Write a brief analysis and return ONLY valid JSON (no markdown, no backticks):
+{{
+  "forecastCurve": [<12 numbers: predicted monthly closing prices starting near {req.currentPrice}>],
+  "adviceHeadline": "<6-10 word verdict matching the {jev_result['signal']} signal, in plain English>",
+  "adviceDetail": "<2-3 simple, friendly sentences for beginners>",
+  "adviceAction": "<1 actionable sentence>"
+}}
+
+Use simple words. No jargon. The forecast should reflect the {jev_result['signal']} signal direction."""
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.4,
+            "maxOutputTokens": 512,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(f"{GEMINI_URL}?key={GEMINI_API_KEY}", json=payload, timeout=15)
+        if r.status_code != 200:
+            return {}
+        data = r.json()
+        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return json.loads(text)
+    except Exception:
+        return {}
+
+
 @app.post("/api/analyze")
 async def analyze_stock(req: AnalyzeRequest):
-    if not GEMINI_API_KEY:
-        raise HTTPException(503, "Gemini API key not configured")
+    if not TYPESAFE_API_KEY:
+        if not GEMINI_API_KEY:
+            raise HTTPException(503, "Neither Jev nor Gemini API key configured")
+        return await _legacy_gemini_analyze(req)
 
+    try:
+        jev_result = await _jev_analyze(req)
+    except Exception as e:
+        if GEMINI_API_KEY:
+            return await _legacy_gemini_analyze(req)
+        raise HTTPException(502, f"Jev analysis failed: {str(e)}")
+
+    prose = await _gemini_prose(req, jev_result)
+
+    if not prose.get("forecastCurve"):
+        slope = (req.maSlopePct or 0)
+        monthly_drift = max(-0.04, min(0.04, (slope / 5 / 100) * 4.33))
+        curve = [req.currentPrice]
+        for i in range(12):
+            curve.append(round(curve[-1] * (1 + monthly_drift), 2))
+        prose["forecastCurve"] = curve
+
+    if not prose.get("adviceHeadline"):
+        stage_advice = {
+            1: "Bottoming Out — Price Moving Sideways",
+            2: "Healthy Uptrend — Strong Buyer Demand",
+            3: "Cooling Off — Upward Momentum Is Fading",
+            4: "Downtrend Alert — Heavy Selling Pressure",
+        }
+        prose["adviceHeadline"] = stage_advice.get(req.stage, "Mixed Signals — Watch and Wait")
+
+    if not prose.get("adviceDetail"):
+        prose["adviceDetail"] = f"The stock is in Stage {req.stage} ({req.stageLabel}). Jev rates this as {jev_result['signal']} with {jev_result['confidence']}% confidence."
+
+    if not prose.get("adviceAction"):
+        action_map = {
+            "STRONG BUY": "Consider buying — strong indicators across the board.",
+            "BUY": "A reasonable time to buy or add to your position.",
+            "HOLD": "Hold your position and wait for clearer signals.",
+            "SELL": "Consider reducing your position to limit risk.",
+            "STRONG SELL": "Avoid buying — wait for the price to stabilize.",
+        }
+        prose["adviceAction"] = action_map.get(jev_result["signal"], "Watch and wait for clearer signals.")
+
+    return {**jev_result, **prose}
+
+
+async def _legacy_gemini_analyze(req: AnalyzeRequest):
+    """Original Gemini-only analysis as fallback when Jev is unavailable."""
     news_block = "\n".join(f"- {h}" for h in req.newsHeadlines[:15]) or "No recent headlines."
 
     stage_context = ""
@@ -475,33 +755,32 @@ Recent headlines:
 
 CRITICAL BEGINNER-FRIENDLY TONE & VOCABULARY RULES:
 - Write in simple, clear, conversational English that anyone without a finance background can easily understand.
-- DO NOT use confusing Wall Street jargon or technical trader terms such as: "capital erosion", "aggressive long entries", "accumulation base", "distribution", "trailing stop-loss", "markdown phase", "consolidation", "headwinds/tailwinds".
-- INSTEAD use simple, direct words: "risk of losing money", "buying shares", "stock stabilizing after a fall", "investors taking profits", "safety exit", "selling pressure", "buying interest".
-- adviceHeadline: 6-10 words, bold and clear (e.g. "Steady Uptrend: Good Time to Hold or Buy", "Falling Stock: High Risk, Better to Wait").
-- adviceDetail: 2-3 simple, friendly sentences explaining what is happening with the stock and what the main risks/opportunities are.
-- adviceAction: 1 actionable, practical sentence telling the user what to do in plain terms (e.g. "Wait for the price to stop falling and stabilize before investing fresh money.").
+- DO NOT use confusing Wall Street jargon or technical trader terms.
+- adviceHeadline: 6-10 words, bold and clear.
+- adviceDetail: 2-3 simple, friendly sentences.
+- adviceAction: 1 actionable, practical sentence.
 
 Return this exact JSON schema:
 {{
   "signal": "STRONG BUY" | "BUY" | "HOLD" | "SELL" | "STRONG SELL",
   "confidence": <number 0-100>,
   "forecastCurve": [<12 numbers: predicted monthly closing prices for the next 12 months>],
-  "adviceHeadline": "<short bold verdict, 6-10 words in plain English>",
-  "adviceDetail": "<2-3 simple sentences in beginner-friendly English>",
+  "adviceHeadline": "<short bold verdict>",
+  "adviceDetail": "<2-3 simple sentences>",
   "adviceAction": "<1 simple, actionable sentence>",
   "factors": [
-    {{"name": "<factor name in plain English>", "desc": "<1 clear sentence>", "type": "macro" | "sentiment" | "financial", "impact": <integer -10 to 10>}}
+    {{"name": "<factor name>", "desc": "<1 clear sentence>", "type": "macro" | "sentiment" | "financial", "impact": <integer -10 to 10>}}
   ]
 }}
 
-Include 5-7 factors. Be realistic — use headlines for sentiment and the numbers for financial/stage context. The forecastCurve should start near the current price and reflect your signal direction."""
+Include 5-7 factors. The forecastCurve should start near the current price and reflect your signal direction."""
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.4,
             "maxOutputTokens": 2048,
-            "responseMimeType": "application/json"
+            "responseMimeType": "application/json",
         },
     }
 
@@ -509,12 +788,8 @@ Include 5-7 factors. Be realistic — use headlines for sentiment and the number
         async with httpx.AsyncClient() as client:
             r = await client.post(f"{GEMINI_URL}?key={GEMINI_API_KEY}", json=payload, timeout=30)
 
-        if r.status_code == 404:
-            raise HTTPException(502, f"Gemini Model not found. Check if {GEMINI_MODEL} is correct.")
-        if r.status_code in (400, 403):
-            raise HTTPException(502, f"Gemini API key is invalid or lacks access. Code: {r.status_code}")
         if r.status_code != 200:
-            raise HTTPException(502, f"Gemini API error: {r.status_code} - {r.text}")
+            raise HTTPException(502, f"Gemini API error: {r.status_code}")
 
         data = r.json()
         text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -539,7 +814,7 @@ Include 5-7 factors. Be realistic — use headlines for sentiment and the number
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "gemini_configured": bool(GEMINI_API_KEY)}
+    return {"status": "ok", "gemini_configured": bool(GEMINI_API_KEY), "jev_configured": bool(TYPESAFE_API_KEY)}
 
 
 # ── Serve the frontend ───────────────────────────────────────────────
