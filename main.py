@@ -812,6 +812,16 @@ def _fetch_ticker_summary(ticker: str) -> dict:
         currency = "USD"
     closes = hist["Close"].tolist()
     last_close = round(closes[-1], 2)
+    # Probe latest daily close for accurate current price (same as dashboard)
+    try:
+        daily = tkr.history(period="5d", interval="1d")
+        if not daily.empty:
+            daily = daily.dropna(subset=["Close"])
+            daily = daily[daily["Close"] > 0]
+            if not daily.empty:
+                last_close = round(float(daily["Close"].iloc[-1]), 2)
+    except Exception:
+        pass
     close_series = pd.Series(closes)
     ma_series = close_series.rolling(window=30).mean()
     ema_series = close_series.ewm(span=52, adjust=False).mean()
