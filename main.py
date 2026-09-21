@@ -95,10 +95,19 @@ async def get_chart(ticker: str, interval: str = "1d", range: str = "1y"):
         except Exception:
             daily = None
 
-        return hist, currency, daily, high_52, low_52
+        # Live/delayed price from fast_info (most current during market hours)
+        live_price = None
+        try:
+            lp = tkr.fast_info.get("lastPrice")
+            if lp and float(lp) > 0:
+                live_price = round(float(lp), 2)
+        except Exception:
+            pass
+
+        return hist, currency, daily, high_52, low_52, live_price
 
     try:
-        hist, currency, daily, high_52, low_52 = await asyncio.to_thread(_get_history)
+        hist, currency, daily, high_52, low_52, live_price = await asyncio.to_thread(_get_history)
     except Exception as e:
         raise HTTPException(502, f"Failed to fetch chart: {str(e)}")
 
@@ -125,12 +134,14 @@ async def get_chart(ticker: str, interval: str = "1d", range: str = "1y"):
     if daily is not None and not daily.empty:
         last_close = round(float(daily["Close"].iloc[-1]), 2)
         last_close_date = daily.index[-1].strftime("%Y-%m-%d")
-        # Ensure the final point in history aligns with the true last close and date
         history[-1]["close"] = last_close
         history[-1]["date"] = last_close_date
     elif history:
         last_close = history[-1]["close"]
         last_close_date = history[-1]["date"]
+    # Prefer live/delayed price from fast_info (most current during market hours)
+    if live_price:
+        last_close = live_price
 
     start_close = history[0]["close"] if history else last_close
     start_date = history[0]["date"] if history else last_close_date
@@ -812,16 +823,21 @@ def _fetch_ticker_summary(ticker: str) -> dict:
         currency = "USD"
     closes = hist["Close"].tolist()
     last_close = round(closes[-1], 2)
-    # Probe latest daily close for accurate current price (same as dashboard)
+    # Prefer live/delayed price, fallback to daily close, then weekly
     try:
-        daily = tkr.history(period="5d", interval="1d")
-        if not daily.empty:
-            daily = daily.dropna(subset=["Close"])
-            daily = daily[daily["Close"] > 0]
-            if not daily.empty:
-                last_close = round(float(daily["Close"].iloc[-1]), 2)
+        lp = tkr.fast_info.get("lastPrice")
+        if lp and float(lp) > 0:
+            last_close = round(float(lp), 2)
     except Exception:
-        pass
+        try:
+            daily = tkr.history(period="5d", interval="1d")
+            if not daily.empty:
+                daily = daily.dropna(subset=["Close"])
+                daily = daily[daily["Close"] > 0]
+                if not daily.empty:
+                    last_close = round(float(daily["Close"].iloc[-1]), 2)
+        except Exception:
+            pass
     close_series = pd.Series(closes)
     ma_series = close_series.rolling(window=30).mean()
     ema_series = close_series.ewm(span=52, adjust=False).mean()
