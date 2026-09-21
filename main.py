@@ -633,7 +633,7 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
 
     # Confidence: start from Jev's raw confidence, adjust for EMA/SMA slope agreement
     signal = signal_answer.choice
-    confidence = signal_answer.confidence
+    confidence = round(signal_answer.confidence * 100)
     bullish = signal in ("BUY", "STRONG BUY")
     bearish = signal in ("SELL", "STRONG SELL")
     if (bullish or bearish) and req.emaAgreement is not None:
@@ -715,12 +715,14 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
     # Per-peer ranking results
     peer_ranking = []
     for i, p in enumerate(peer_data):
-        peer_sig = response.choices[f"peer_signal_{i}"].choice
+        peer_sig_answer = response.choices[f"peer_signal_{i}"]
         peer_mom = response.nouls[f"peer_momentum_{i}"].noul
+        peer_conf = round(peer_sig_answer.confidence * 100)
         peer_ranking.append({
             "ticker": p["ticker"],
-            "signal": peer_sig,
+            "signal": peer_sig_answer.choice,
             "momentum": round(peer_mom, 2),
+            "confidence": max(35, min(95, peer_conf)),
         })
     peer_ranking.sort(key=lambda x: x["momentum"], reverse=True)
     for rank_idx, pr in enumerate(peer_ranking, 1):
@@ -917,25 +919,23 @@ Include 5-7 factors. The forecastCurve should start near the current price and r
 async def get_fundamentals(ticker: str):
     def _fetch():
         tkr = yf.Ticker(ticker)
-        result = {
-            "marketCap": None, "trailingPE": None, "forwardPE": None,
-            "dividendYield": None, "revenueGrowth": None, "profitMargins": None,
-            "sector": None, "industry": None,
-        }
-        try:
-            fi = tkr.fast_info
-            if fi:
-                result["marketCap"] = fi.get("marketCap") or fi.get("market_cap")
-        except Exception:
-            pass
+        keys = ["marketCap", "trailingPE", "forwardPE", "dividendYield",
+                "revenueGrowth", "profitMargins", "sector", "industry"]
+        result = {k: None for k in keys}
         try:
             info = tkr.info
             if info and isinstance(info, dict):
-                for k in result:
-                    if result[k] is None and k in info and info[k] is not None:
-                        result[k] = info[k]
+                for k in keys:
+                    val = info.get(k)
+                    if val is not None:
+                        result[k] = val
         except Exception:
             pass
+        if result["marketCap"] is None:
+            try:
+                result["marketCap"] = tkr.fast_info.get("marketCap")
+            except Exception:
+                pass
         return result
 
     try:
@@ -1047,7 +1047,7 @@ async def analyze_watchlist(req: WatchlistRequest):
                 results.append({
                     **s,
                     "signal": sig.choice,
-                    "confidence": max(35, min(95, sig.confidence)),
+                    "confidence": max(35, min(95, round(sig.confidence * 100))),
                     "momentum": round(mom.noul, 2),
                 })
             return {"results": results}

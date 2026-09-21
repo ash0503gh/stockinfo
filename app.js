@@ -1605,11 +1605,11 @@ async function loadFundamentals(ticker) {
 
     const items = [
       { label: "Market Cap", value: d.marketCap != null ? fmtBig(d.marketCap) : "—" },
-      { label: "P/E Ratio", value: d.peRatio != null ? Number(d.peRatio).toFixed(1) : "—" },
+      { label: "P/E Ratio", value: d.trailingPE != null ? Number(d.trailingPE).toFixed(1) : "—" },
       { label: "Forward P/E", value: d.forwardPE != null ? Number(d.forwardPE).toFixed(1) : "—" },
       { label: "Div. Yield", value: d.dividendYield != null ? (d.dividendYield * 100).toFixed(2) + "%" : "—" },
       { label: "Rev. Growth", value: d.revenueGrowth != null ? (d.revenueGrowth * 100).toFixed(1) + "%" : "—" },
-      { label: "Profit Margin", value: d.profitMargin != null ? (d.profitMargin * 100).toFixed(1) + "%" : "—" },
+      { label: "Profit Margin", value: d.profitMargins != null ? (d.profitMargins * 100).toFixed(1) + "%" : "—" },
       { label: "Sector", value: d.sector || "—" },
       { label: "Industry", value: d.industry || "—" },
     ];
@@ -1638,9 +1638,8 @@ function renderPeerComparison(peerRanking) {
   grid.innerHTML = peerRanking.map(p => {
     const sig = SIGNAL_META[p.signal] || SIGNAL_META.HOLD;
     const isStrongest = p.rank === 1;
-    const momRaw = p.momentum != null ? p.momentum : 0.5;
-    const momPct = Math.max(0, Math.min(100, Math.round(momRaw <= 1 ? momRaw * 100 : momRaw)));
-    const momColor = momPct >= 60 ? COLORS.green : momPct <= 40 ? COLORS.red : COLORS.amber;
+    const conf = p.confidence != null ? p.confidence : 50;
+    const confColor = conf >= 70 ? COLORS.green : conf <= 45 ? COLORS.red : COLORS.amber;
     return `
       <div class="peer-item${isStrongest ? " peer-strongest" : ""}" data-ticker="${escapeHtml(p.ticker)}">
         <div class="peer-item-top">
@@ -1648,8 +1647,9 @@ function renderPeerComparison(peerRanking) {
           <span class="peer-item-rank">${isStrongest ? "Strongest" : "#" + p.rank}</span>
         </div>
         <span class="signal-pill" style="background:${sig.bg}; color:${sig.color};">${p.signal || "HOLD"}</span>
-        <div class="peer-momentum-bar">
-          <div class="peer-momentum-fill" style="width:${momPct}%; background:${momColor};"></div>
+        <div class="peer-confidence">
+          <span class="peer-conf-value" style="color:${confColor};">${conf}%</span>
+          <span class="peer-conf-label">confidence</span>
         </div>
       </div>
     `;
