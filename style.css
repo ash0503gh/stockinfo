@@ -1325,6 +1325,11 @@ footer {
   border-radius: var(--r-xs);
   font-weight: 600;
 }
+.wl-table .signal-pill {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--r-xs);
+}
 .wl-stage-1 { background: rgba(148,163,184,0.12); color: var(--gray); }
 .wl-stage-2 { background: rgba(16,185,129,0.12); color: var(--green); }
 .wl-stage-3 { background: rgba(245,158,11,0.12); color: var(--amber); }
