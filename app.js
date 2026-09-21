@@ -59,26 +59,6 @@ const TIMEFRAMES = [
   { label: "10Y", range: "10y", interval: "1wk" },
 ];
 
-// Popular peer groups for instant quick-comparison
-const PEER_MAP = {
-  "TCS.NS": ["INFY.NS", "WIPRO.NS", "HCLTECH.NS"],
-  "INFY.NS": ["TCS.NS", "WIPRO.NS", "HCLTECH.NS"],
-  "WIPRO.NS": ["TCS.NS", "INFY.NS", "HCLTECH.NS"],
-  "HCLTECH.NS": ["TCS.NS", "INFY.NS", "WIPRO.NS"],
-  "HDFCBANK.NS": ["ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS"],
-  "ICICIBANK.NS": ["HDFCBANK.NS", "SBIN.NS", "AXISBANK.NS"],
-  "SBIN.NS": ["HDFCBANK.NS", "ICICIBANK.NS", "PNB.NS"],
-  "RELIANCE.NS": ["TCS.NS", "HDFCBANK.NS", "BHARTIARTL.NS"],
-  "TATAMOTORS.NS": ["MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS"],
-  "AAPL": ["MSFT", "GOOGL", "NVDA", "AMZN"],
-  "MSFT": ["AAPL", "GOOGL", "NVDA", "AMZN"],
-  "NVDA": ["AMD", "INTC", "TSM", "AVGO"],
-  "GOOGL": ["MSFT", "META", "AAPL", "AMZN"],
-  "TSLA": ["RIVN", "LCID", "F", "GM"],
-  "META": ["GOOGL", "SNAP", "MSFT", "AMZN"],
-  "AMZN": ["MSFT", "GOOGL", "WMT", "AAPL"],
-};
-
 // ── Utility ───────────────────────────────────────────────────────────
 const fmt = (n, d = 2) => n != null ? Number(n).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : "—";
 const fmtBig = (n) => {
@@ -757,7 +737,6 @@ async function loadTicker(ticker) {
 function renderAllUI() {
   el("content").style.display = "flex";
   renderTickerBar();
-  renderPeerChips();
   updateWatchlistStar();
   renderRangeBar();
   renderStats();
@@ -767,50 +746,20 @@ function renderAllUI() {
   renderPriceChart();
   renderVolumeChart();
   renderNews();
-  // Reset peer card until analysis provides data
-  const peerCard = el("peerCard");
-  if (peerCard) peerCard.style.display = "none";
-
   if (state.analysis) {
     renderVerdict();
     updateSignalStat();
     renderForecastChart();
     renderFactors();
-    if (state.analysis.peerRanking) renderPeerComparison(state.analysis.peerRanking);
   }
 }
 
-// ── Render Ticker Bar & Peer Chips ────────────────────────────────────
+// ── Render Ticker Bar ────────────────────────────────────────────────
 function renderTickerBar() {
   el("tickerBar").style.display = "flex";
   el("tickerSymbol").textContent = state.ticker;
   el("tickerName").textContent = state.stockName;
   el("tickerCurrency").textContent = state.currency;
-}
-
-function renderPeerChips() {
-  const container = el("peerChips");
-  if (!container) return;
-
-  let peers = PEER_MAP[state.ticker];
-  if (!peers) {
-    // Contextual fallback: if Indian stock, suggest top leaders; if US, suggest US tech
-    if (state.ticker.endsWith(".NS") || state.ticker.endsWith(".BO")) {
-      peers = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS"].filter(t => t !== state.ticker);
-    } else {
-      peers = ["AAPL", "MSFT", "NVDA"].filter(t => t !== state.ticker);
-    }
-  }
-
-  container.innerHTML = peers.map(p => `
-    <button class="peer-chip" data-peer="${escapeHtml(p)}">${escapeHtml(p.replace(/\.(NS|BO)/, ""))}</button>
-  `).join("");
-
-  container.querySelectorAll(".peer-chip").forEach(btn => {
-    btn.addEventListener("click", () => {
-      loadTicker(btn.dataset.peer);
-    });
-  });
 }
 
 // ── Render 52-Week Range Bar ──────────────────────────────────────────
@@ -1206,7 +1155,6 @@ async function runAiAnalysis() {
         emaAgreement: s ? s.emaAgreement : undefined,
         computedSignal: s ? s.signal : undefined,
         computedConfidence: s ? s.confidence : undefined,
-        peerTickers: (PEER_MAP[state.ticker] || []).slice(0, 4),
       }),
     });
     if (res.ok) {
@@ -1249,7 +1197,6 @@ async function runAiAnalysis() {
   renderForecastChart();
   renderFactors();
   renderNews(); // Re-render news with updated sentiment scores
-  if (analysis.peerRanking) renderPeerComparison(analysis.peerRanking);
 }
 
 function renderVerdict() {
@@ -1602,41 +1549,6 @@ function bindWatchlistCards() {
       e.stopPropagation();
       removeFromWatchlist(btn.dataset.remove);
     });
-  });
-}
-
-// ── Peer Comparison Rendering ────────────────────────────────────────
-function renderPeerComparison(peerRanking) {
-  const card = el("peerCard");
-  const grid = el("peerGrid");
-  if (!card || !grid || !peerRanking || !peerRanking.length) {
-    if (card) card.style.display = "none";
-    return;
-  }
-
-  card.style.display = "block";
-  grid.innerHTML = peerRanking.map(p => {
-    const sig = SIGNAL_META[p.signal] || SIGNAL_META.HOLD;
-    const isStrongest = p.rank === 1;
-    const conf = p.confidence != null ? p.confidence : 50;
-    const confColor = conf >= 70 ? COLORS.green : conf <= 45 ? COLORS.red : COLORS.amber;
-    return `
-      <div class="peer-item${isStrongest ? " peer-strongest" : ""}" data-ticker="${escapeHtml(p.ticker)}">
-        <div class="peer-item-top">
-          <span class="peer-item-ticker">${escapeHtml(p.ticker.replace(/\.(NS|BO)/, ""))}</span>
-          <span class="peer-item-rank">${isStrongest ? "Strongest" : "#" + p.rank}</span>
-        </div>
-        <span class="signal-pill" style="background:${sig.bg}; color:${sig.color};">${p.signal || "HOLD"}</span>
-        <div class="peer-confidence">
-          <span class="peer-conf-value" style="color:${confColor};">${conf}%</span>
-          <span class="peer-conf-label">confidence</span>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  grid.querySelectorAll(".peer-item").forEach(item => {
-    item.addEventListener("click", () => loadTicker(item.dataset.ticker));
   });
 }
 
