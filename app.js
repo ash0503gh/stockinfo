@@ -1429,9 +1429,6 @@ el("watchlistInput").addEventListener("input", () => {
           watchlistSelectedTicker = item.dataset.symbol;
           el("watchlistInput").value = item.dataset.symbol;
           dropdown.style.display = "none";
-          addToWatchlist(watchlistSelectedTicker);
-          el("watchlistInput").value = "";
-          watchlistSelectedTicker = "";
         });
       });
     } catch {}
@@ -1452,6 +1449,10 @@ el("watchlistInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") el("watchlistAddBtn").click();
 });
 
+let wlSortKey = "ticker";
+let wlSortAsc = true;
+let wlData = [];
+
 async function loadWatchlist() {
   const tickers = getWatchlistTickers();
   const grid = el("watchlistGrid");
@@ -1460,6 +1461,7 @@ async function loadWatchlist() {
 
   if (!tickers.length) {
     grid.innerHTML = "";
+    wlData = [];
     empty.style.display = "block";
     return;
   }
@@ -1475,79 +1477,138 @@ async function loadWatchlist() {
     if (!res.ok) throw new Error("Watchlist analyze failed");
     const data = await res.json();
     loading.style.display = "none";
-    renderWatchlistGrid(data.results || []);
+    wlData = data.results || [];
+    renderWatchlistTable();
   } catch (err) {
     loading.style.display = "none";
-    // Fallback: show tickers without analysis
-    grid.innerHTML = tickers.map(t => `
-      <div class="watchlist-card" data-ticker="${escapeHtml(t)}">
-        <div class="watchlist-card-top">
-          <span class="watchlist-card-ticker">${escapeHtml(t)}</span>
-          <button class="watchlist-card-remove" data-remove="${escapeHtml(t)}" title="Remove">&times;</button>
-        </div>
-        <div class="watchlist-card-stats"><span>Unable to load analysis</span></div>
-      </div>
-    `).join("");
-    bindWatchlistCards();
+    grid.innerHTML = `<div class="wl-table-error">Unable to load watchlist data</div>`;
   }
 }
 
-function renderWatchlistGrid(items) {
+function sortWatchlist(key) {
+  if (wlSortKey === key) {
+    wlSortAsc = !wlSortAsc;
+  } else {
+    wlSortKey = key;
+    wlSortAsc = true;
+  }
+  renderWatchlistTable();
+}
+
+function getWlSortVal(item, key) {
+  const map = {
+    ticker: item.ticker,
+    stage: item.stage || 0,
+    signal: item.signal === "BUY" ? 1 : item.signal === "HOLD" ? 2 : 3,
+    price: item.lastClose || 0,
+    yrReturn: item.yrReturn || 0,
+    ema10: item.ema10 || 0,
+    ema20: item.ema20 || 0,
+    ema40: item.ema40 || 0,
+  };
+  return map[key] ?? 0;
+}
+
+function fmtEma(price, pct, sym) {
+  const sign = pct >= 0 ? "+" : "";
+  const color = pct >= 0 ? COLORS.green : COLORS.red;
+  return `<span class="wl-ema-price">${sym}${fmt(price)}</span><span class="wl-ema-pct" style="color:${color}">${sign}${pct.toFixed(1)}%</span>`;
+}
+
+function renderWatchlistTable() {
   const grid = el("watchlistGrid");
-  grid.innerHTML = items.map(item => {
+  const sorted = [...wlData].sort((a, b) => {
+    let va = getWlSortVal(a, wlSortKey);
+    let vb = getWlSortVal(b, wlSortKey);
+    if (typeof va === "string") { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+    if (va < vb) return wlSortAsc ? -1 : 1;
+    if (va > vb) return wlSortAsc ? 1 : -1;
+    return 0;
+  });
+
+  const arrow = (key) => wlSortKey === key ? (wlSortAsc ? " ▲" : " ▼") : "";
+  const cols = [
+    { key: "ticker", label: "Stock" },
+    { key: "stage", label: "Stage" },
+    { key: "signal", label: "Signal" },
+    { key: "price", label: "Price" },
+    { key: "yrReturn", label: "1Y Return" },
+    { key: "ema10", label: "10w EMA" },
+    { key: "ema20", label: "20w EMA" },
+    { key: "ema40", label: "40w EMA" },
+  ];
+
+  const headerHtml = cols.map(c =>
+    `<th class="wl-th${wlSortKey === c.key ? " wl-th-active" : ""}" data-sort="${c.key}">${c.label}${arrow(c.key)}</th>`
+  ).join("") + `<th class="wl-th wl-th-actions"></th>`;
+
+  const rowsHtml = sorted.map(item => {
     const sig = SIGNAL_META[item.signal] || SIGNAL_META.HOLD;
     const sym = item.currency === "INR" ? "₹" : "$";
     const yrStr = item.yrReturn != null ? `${item.yrReturn >= 0 ? "+" : ""}${Number(item.yrReturn).toFixed(1)}%` : "—";
     const yrColor = item.yrReturn >= 0 ? COLORS.green : COLORS.red;
-    const mcp = item.monthlyChangePct || 0;
-    const mcSign = mcp >= 0 ? "+" : "";
-    const mcColor = mcp >= 0 ? COLORS.green : COLORS.red;
-    const conf = item.confidence || "—";
-    const confColor = conf >= 70 ? COLORS.green : conf <= 45 ? COLORS.red : COLORS.amber;
+    const displayTicker = item.ticker.replace(/\.(NS|BO)/, "");
     return `
-      <div class="watchlist-card" data-ticker="${escapeHtml(item.ticker)}">
-        <div class="wl-card-header">
-          <div class="wl-card-left">
-            <span class="wl-card-ticker">${escapeHtml(item.ticker.replace(/\.(NS|BO)/, ""))}</span>
-            <span class="wl-card-stage">Stage ${item.stage || "—"} · ${escapeHtml(item.stageLabel || "—")}</span>
-          </div>
-          <div class="wl-card-right">
-            <span class="signal-pill" style="background:${sig.bg}; color:${sig.color};">${item.signal || "HOLD"}</span>
-            <button class="watchlist-card-remove" data-remove="${escapeHtml(item.ticker)}" title="Remove">&times;</button>
-          </div>
-        </div>
-        <div class="wl-card-price-row">
-          <span class="wl-card-price">${sym}${fmt(item.lastClose)}</span>
-          <span class="wl-card-monthly" style="color:${mcColor}">${mcSign}${mcp.toFixed(1)}% monthly</span>
-        </div>
-        <div class="wl-card-metrics">
-          <div class="wl-metric">
-            <span class="wl-metric-label">1Y Return</span>
-            <span class="wl-metric-value" style="color:${yrColor}">${yrStr}</span>
-          </div>
-          <div class="wl-metric">
-            <span class="wl-metric-label">Confidence</span>
-            <span class="wl-metric-value" style="color:${confColor}">${conf}%</span>
-          </div>
-        </div>
-      </div>
-    `;
+      <tr class="wl-row" data-ticker="${escapeHtml(item.ticker)}">
+        <td class="wl-td wl-td-ticker">${escapeHtml(displayTicker)}</td>
+        <td class="wl-td"><span class="wl-stage-badge wl-stage-${item.stage || 1}">S${item.stage || "—"} · ${escapeHtml(item.stageLabel || "—")}</span></td>
+        <td class="wl-td"><span class="signal-pill" style="background:${sig.bg};color:${sig.color};">${item.signal || "HOLD"}</span></td>
+        <td class="wl-td wl-td-mono">${sym}${fmt(item.lastClose)}</td>
+        <td class="wl-td wl-td-mono" style="color:${yrColor}">${yrStr}</td>
+        <td class="wl-td wl-td-ema">${fmtEma(item.ema10 || 0, item.ema10Pct || 0, sym)}</td>
+        <td class="wl-td wl-td-ema">${fmtEma(item.ema20 || 0, item.ema20Pct || 0, sym)}</td>
+        <td class="wl-td wl-td-ema">${fmtEma(item.ema40 || 0, item.ema40Pct || 0, sym)}</td>
+        <td class="wl-td wl-td-actions">
+          <button class="wl-view-btn" data-view="${escapeHtml(item.ticker)}" title="View">View</button>
+          <button class="wl-remove-btn" data-remove="${escapeHtml(item.ticker)}" title="Remove">✕</button>
+        </td>
+      </tr>`;
   }).join("");
-  bindWatchlistCards();
-}
 
-function bindWatchlistCards() {
-  const grid = el("watchlistGrid");
-  grid.querySelectorAll(".watchlist-card").forEach(card => {
-    card.addEventListener("click", (e) => {
-      if (e.target.closest(".watchlist-card-remove")) return;
-      switchToDashboard(card.dataset.ticker);
-    });
+  grid.innerHTML = `
+    <div class="wl-table-wrap">
+      <table class="wl-table">
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>`;
+
+  grid.querySelectorAll(".wl-th[data-sort]").forEach(th => {
+    th.addEventListener("click", () => sortWatchlist(th.dataset.sort));
   });
-  grid.querySelectorAll(".watchlist-card-remove").forEach(btn => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      removeFromWatchlist(btn.dataset.remove);
+  grid.querySelectorAll(".wl-view-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); switchToDashboard(btn.dataset.view); });
+  });
+  grid.querySelectorAll(".wl-remove-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); removeFromWatchlist(btn.dataset.remove); });
+  });
+
+  // Swipe-to-delete on mobile
+  grid.querySelectorAll(".wl-row").forEach(row => {
+    let startX = 0, currentX = 0, swiping = false;
+    row.addEventListener("touchstart", (e) => {
+      startX = e.touches[0].clientX;
+      currentX = startX;
+      swiping = true;
+      row.style.transition = "none";
+    }, { passive: true });
+    row.addEventListener("touchmove", (e) => {
+      if (!swiping) return;
+      currentX = e.touches[0].clientX;
+      const dx = currentX - startX;
+      if (dx < 0) row.style.transform = `translateX(${Math.max(dx, -120)}px)`;
+    }, { passive: true });
+    row.addEventListener("touchend", () => {
+      swiping = false;
+      const dx = currentX - startX;
+      row.style.transition = "transform 0.3s ease";
+      if (dx < -80) {
+        row.style.transform = "translateX(-100%)";
+        row.style.opacity = "0";
+        setTimeout(() => removeFromWatchlist(row.dataset.ticker), 300);
+      } else {
+        row.style.transform = "";
+      }
     });
   });
 }

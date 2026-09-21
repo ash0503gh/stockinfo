@@ -1238,104 +1238,127 @@ footer {
   padding: 60px 20px;
   font-size: 14px;
 }
+/* Watchlist Table */
 .watchlist-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-  gap: 14px;
+  width: 100%;
 }
-.watchlist-card {
-  background: var(--surface);
+.wl-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--border);
   border-radius: var(--r);
-  padding: 18px 22px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  animation: fadeUp 0.4s ease forwards;
+  background: var(--surface);
 }
-.watchlist-card:hover {
-  border-color: var(--border-hover);
-  background: var(--glass-hover);
-  transform: translateY(-1px);
-}
-.wl-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-.wl-card-left {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-.wl-card-ticker {
-  font-family: var(--mono);
-  font-weight: 700;
-  font-size: 18px;
-  color: var(--text);
-}
-.wl-card-stage {
-  font-size: 11px;
-  color: var(--text-sec);
-}
-.wl-card-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.wl-card-price-row {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.wl-card-price {
-  font-family: var(--mono);
-  font-weight: 700;
-  font-size: 22px;
-  color: var(--text);
-}
-.wl-card-monthly {
-  font-family: var(--mono);
+.wl-table {
+  width: 100%;
+  border-collapse: collapse;
   font-size: 13px;
+  white-space: nowrap;
+}
+.wl-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.wl-th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  background: var(--surface-solid);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+.wl-th:hover { color: var(--text); }
+.wl-th-active { color: var(--blue); }
+.wl-th-actions { cursor: default; width: 100px; }
+.wl-row {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s, transform 0.3s ease, opacity 0.3s ease;
+}
+.wl-row:last-child { border-bottom: none; }
+.wl-row:hover { background: var(--glass-hover); }
+.wl-td {
+  padding: 10px 14px;
+  color: var(--text-sec);
+  vertical-align: middle;
+}
+.wl-td-ticker {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+}
+.wl-td-mono {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.wl-td-ema {
+  font-family: var(--mono);
+}
+.wl-ema-price {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  margin-right: 4px;
+}
+.wl-ema-pct {
+  font-size: 10px;
   font-weight: 500;
 }
-.wl-card-metrics {
-  display: flex;
-  gap: 24px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-}
-.wl-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.wl-metric-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
+.wl-stage-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--r-xs);
   font-weight: 600;
 }
-.wl-metric-value {
-  font-family: var(--mono);
-  font-size: 15px;
-  font-weight: 600;
+.wl-stage-1 { background: rgba(148,163,184,0.12); color: var(--gray); }
+.wl-stage-2 { background: rgba(16,185,129,0.12); color: var(--green); }
+.wl-stage-3 { background: rgba(245,158,11,0.12); color: var(--amber); }
+.wl-stage-4 { background: rgba(239,68,68,0.12); color: var(--red); }
+.wl-td-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.watchlist-card-remove {
+.wl-view-btn {
+  padding: 5px 12px;
+  background: var(--glass-hover);
+  border: 1px solid var(--border);
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.wl-view-btn:hover {
+  background: var(--blue-glow);
+  border-color: var(--blue);
+}
+.wl-remove-btn {
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: 14px;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 4px 8px;
   border-radius: var(--r-xs);
-  transition: all 0.2s ease;
+  transition: all 0.15s;
 }
-.watchlist-card-remove:hover {
+.wl-remove-btn:hover {
   color: var(--red);
   background: var(--red-dim);
+}
+.wl-table-error {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
 }
 
 
@@ -1344,8 +1367,21 @@ footer {
     flex-direction: column;
     align-items: stretch;
   }
+  .brand {
+    justify-content: center;
+  }
   .search-wrap {
     max-width: 100%;
+    flex-direction: column;
+  }
+  .search-input-wrap {
+    width: 100%;
+  }
+  #applyBtn {
+    width: 100%;
+  }
+  .stat-row {
+    flex-wrap: wrap;
   }
   .stat-card, .signal-card {
     min-width: 45%;
@@ -1357,11 +1393,19 @@ footer {
   .grid-2col {
     grid-template-columns: 1fr;
   }
+  .ticker-bar {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
   .ticker-symbol {
-    font-size: 24px;
+    font-size: 22px;
+  }
+  .ticker-name {
+    font-size: 12px;
   }
   .verdict-headline {
-    font-size: 18px;
+    font-size: 17px;
   }
   .verdict-top {
     flex-direction: column;
@@ -1384,24 +1428,61 @@ footer {
     width: 100%;
     order: 3;
   }
+  .card-label-row {
+    flex-direction: column;
+    gap: 8px;
+  }
   .stage-stepper {
     width: 100%;
     justify-content: space-between;
     margin-top: 6px;
+    flex-wrap: wrap;
+  }
+  .step-pill {
+    font-size: 10px;
+    padding: 3px 6px;
+  }
+  .step-arrow {
+    font-size: 10px;
   }
   .scenario-item {
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
   }
-  .watchlist-grid {
-    grid-template-columns: 1fr;
+  .timeframe-row {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .watchlist-add {
+    width: 100%;
   }
   .watchlist-add input {
-    width: 160px;
+    flex: 1;
+    width: auto;
+    min-width: 0;
   }
   .watchlist-header {
     flex-direction: column;
     align-items: stretch;
   }
+  .watchlist-header h2 {
+    font-size: 18px;
+  }
+  .wl-table { font-size: 12px; }
+  .wl-th, .wl-td { padding: 8px 10px; }
+  .wl-remove-btn { display: none; }
+  footer {
+    font-size: 10px;
+    padding: 16px 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .container { padding: 8px; }
+  .stat-card, .signal-card { min-width: 100%; }
+  .card { padding: 14px; }
+  .verdict-headline { font-size: 15px; }
+  .ticker-symbol { font-size: 20px; }
+  h1 { font-size: 18px; }
 }

@@ -835,6 +835,12 @@ def _fetch_ticker_summary(ticker: str) -> dict:
     monthly_change_pct = 0.0
     if len(closes) >= 5:
         monthly_change_pct = round((last_close - closes[-5]) / closes[-5] * 100, 2) if closes[-5] else 0.0
+    ema10 = close_series.ewm(span=10, adjust=False).mean().iloc[-1]
+    ema20 = close_series.ewm(span=20, adjust=False).mean().iloc[-1]
+    ema40 = close_series.ewm(span=40, adjust=False).mean().iloc[-1]
+    ema10_pct = round((last_close - ema10) / ema10 * 100, 2) if ema10 else 0.0
+    ema20_pct = round((last_close - ema20) / ema20 * 100, 2) if ema20 else 0.0
+    ema40_pct = round((last_close - ema40) / ema40 * 100, 2) if ema40 else 0.0
     return {
         "ticker": ticker,
         "lastClose": last_close,
@@ -845,6 +851,12 @@ def _fetch_ticker_summary(ticker: str) -> dict:
         "stageLabel": STAGE_LABELS[stage],
         "signal": signal,
         "confidence": confidence,
+        "ema10": round(ema10, 2),
+        "ema10Pct": ema10_pct,
+        "ema20": round(ema20, 2),
+        "ema20Pct": ema20_pct,
+        "ema40": round(ema40, 2),
+        "ema40Pct": ema40_pct,
     }
 
 
