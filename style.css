@@ -1292,7 +1292,15 @@ footer {
   font-family: var(--mono);
   font-weight: 700;
   font-size: 14px;
-  color: var(--text);
+}
+.wl-td-ticker a {
+  color: var(--blue);
+  text-decoration: none;
+  cursor: pointer;
+}
+.wl-td-ticker a:hover {
+  text-decoration: underline;
+  color: var(--cyan);
 }
 .wl-td-mono {
   font-family: var(--mono);
@@ -1322,24 +1330,7 @@ footer {
 .wl-stage-3 { background: rgba(245,158,11,0.12); color: var(--amber); }
 .wl-stage-4 { background: rgba(239,68,68,0.12); color: var(--red); }
 .wl-td-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.wl-view-btn {
-  padding: 5px 12px;
-  background: var(--glass-hover);
-  border: 1px solid var(--border);
-  color: var(--blue);
-  font-size: 12px;
-  font-weight: 600;
-  border-radius: var(--r-xs);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.wl-view-btn:hover {
-  background: var(--blue-glow);
-  border-color: var(--blue);
+  text-align: center;
 }
 .wl-remove-btn {
   background: transparent;
@@ -1372,19 +1363,12 @@ footer {
   }
   .search-wrap {
     max-width: 100%;
-    flex-direction: column;
-  }
-  .search-input-wrap {
-    width: 100%;
-  }
-  #applyBtn {
-    width: 100%;
   }
   .stat-row {
     flex-wrap: wrap;
   }
   .stat-card, .signal-card {
-    min-width: 45%;
+    min-width: 28%;
     flex: 1;
   }
   .container {
@@ -1471,7 +1455,7 @@ footer {
   }
   .wl-table { font-size: 12px; }
   .wl-th, .wl-td { padding: 8px 10px; }
-  .wl-remove-btn { display: none; }
+  .wl-remove-btn { display: inline-block; }
   footer {
     font-size: 10px;
     padding: 16px 0;
@@ -1480,7 +1464,7 @@ footer {
 
 @media (max-width: 420px) {
   .container { padding: 8px; }
-  .stat-card, .signal-card { min-width: 100%; }
+  .stat-card, .signal-card { min-width: 28%; flex: 1; }
   .card { padding: 14px; }
   .verdict-headline { font-size: 15px; }
   .ticker-symbol { font-size: 20px; }

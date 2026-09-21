@@ -1550,7 +1550,7 @@ function renderWatchlistTable() {
     const displayTicker = item.ticker.replace(/\.(NS|BO)/, "");
     return `
       <tr class="wl-row" data-ticker="${escapeHtml(item.ticker)}">
-        <td class="wl-td wl-td-ticker">${escapeHtml(displayTicker)}</td>
+        <td class="wl-td wl-td-ticker"><a data-view="${escapeHtml(item.ticker)}">${escapeHtml(displayTicker)}</a></td>
         <td class="wl-td"><span class="wl-stage-badge wl-stage-${item.stage || 1}">S${item.stage || "—"} · ${escapeHtml(item.stageLabel || "—")}</span></td>
         <td class="wl-td"><span class="signal-pill" style="background:${sig.bg};color:${sig.color};">${item.signal || "HOLD"}</span></td>
         <td class="wl-td wl-td-mono">${sym}${fmt(item.lastClose)}</td>
@@ -1559,7 +1559,6 @@ function renderWatchlistTable() {
         <td class="wl-td wl-td-ema">${fmtEma(item.ema20 || 0, item.ema20Pct || 0, sym)}</td>
         <td class="wl-td wl-td-ema">${fmtEma(item.ema40 || 0, item.ema40Pct || 0, sym)}</td>
         <td class="wl-td wl-td-actions">
-          <button class="wl-view-btn" data-view="${escapeHtml(item.ticker)}" title="View">View</button>
           <button class="wl-remove-btn" data-remove="${escapeHtml(item.ticker)}" title="Remove">✕</button>
         </td>
       </tr>`;
@@ -1576,40 +1575,11 @@ function renderWatchlistTable() {
   grid.querySelectorAll(".wl-th[data-sort]").forEach(th => {
     th.addEventListener("click", () => sortWatchlist(th.dataset.sort));
   });
-  grid.querySelectorAll(".wl-view-btn").forEach(btn => {
-    btn.addEventListener("click", (e) => { e.stopPropagation(); switchToDashboard(btn.dataset.view); });
+  grid.querySelectorAll(".wl-td-ticker a[data-view]").forEach(link => {
+    link.addEventListener("click", (e) => { e.preventDefault(); switchToDashboard(link.dataset.view); });
   });
   grid.querySelectorAll(".wl-remove-btn").forEach(btn => {
     btn.addEventListener("click", (e) => { e.stopPropagation(); removeFromWatchlist(btn.dataset.remove); });
-  });
-
-  // Swipe-to-delete on mobile
-  grid.querySelectorAll(".wl-row").forEach(row => {
-    let startX = 0, currentX = 0, swiping = false;
-    row.addEventListener("touchstart", (e) => {
-      startX = e.touches[0].clientX;
-      currentX = startX;
-      swiping = true;
-      row.style.transition = "none";
-    }, { passive: true });
-    row.addEventListener("touchmove", (e) => {
-      if (!swiping) return;
-      currentX = e.touches[0].clientX;
-      const dx = currentX - startX;
-      if (dx < 0) row.style.transform = `translateX(${Math.max(dx, -120)}px)`;
-    }, { passive: true });
-    row.addEventListener("touchend", () => {
-      swiping = false;
-      const dx = currentX - startX;
-      row.style.transition = "transform 0.3s ease";
-      if (dx < -80) {
-        row.style.transform = "translateX(-100%)";
-        row.style.opacity = "0";
-        setTimeout(() => removeFromWatchlist(row.dataset.ticker), 300);
-      } else {
-        row.style.transform = "";
-      }
-    });
   });
 }
 
