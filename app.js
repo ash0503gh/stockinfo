@@ -20,11 +20,9 @@ const COLORS = {
 };
 
 const SIGNAL_META = {
-  "STRONG BUY": { color: "#10B981", bg: "rgba(16,185,129,0.15)", icon: "⬆" },
-  "BUY":        { color: "#34D399", bg: "rgba(52,211,153,0.12)", icon: "↑" },
-  "HOLD":       { color: "#F59E0B", bg: "rgba(245,158,11,0.12)", icon: "→" },
-  "SELL":       { color: "#F87171", bg: "rgba(248,113,113,0.12)", icon: "↓" },
-  "STRONG SELL":{ color: "#EF4444", bg: "rgba(239,68,68,0.15)", icon: "⬇" },
+  "BUY":  { color: "#10B981", bg: "rgba(16,185,129,0.15)", icon: "↑" },
+  "HOLD": { color: "#F59E0B", bg: "rgba(245,158,11,0.12)", icon: "→" },
+  "SELL": { color: "#EF4444", bg: "rgba(239,68,68,0.15)", icon: "↓" },
 };
 
 const STAGE_COLOR = {
@@ -1554,10 +1552,9 @@ function renderWatchlistGrid(items) {
     const sym = item.currency === "INR" ? "₹" : "$";
     const yrStr = item.yrReturn != null ? `${item.yrReturn >= 0 ? "+" : ""}${Number(item.yrReturn).toFixed(1)}%` : "—";
     const yrColor = item.yrReturn >= 0 ? COLORS.green : COLORS.red;
-    const dc = item.dailyChange || 0;
-    const dcp = item.dailyChangePct || 0;
-    const dcSign = dc >= 0 ? "+" : "";
-    const dcColor = dc >= 0 ? COLORS.green : COLORS.red;
+    const mcp = item.monthlyChangePct || 0;
+    const mcSign = mcp >= 0 ? "+" : "";
+    const mcColor = mcp >= 0 ? COLORS.green : COLORS.red;
     const conf = item.confidence || "—";
     const confColor = conf >= 70 ? COLORS.green : conf <= 45 ? COLORS.red : COLORS.amber;
     return `
@@ -1574,7 +1571,7 @@ function renderWatchlistGrid(items) {
         </div>
         <div class="wl-card-price-row">
           <span class="wl-card-price">${sym}${fmt(item.lastClose)}</span>
-          <span class="wl-card-daily" style="color:${dcColor}">${dcSign}${sym}${Math.abs(dc).toFixed(2)} (${dcSign}${dcp.toFixed(2)}%)</span>
+          <span class="wl-card-monthly" style="color:${mcColor}">${mcSign}${mcp.toFixed(1)}% monthly</span>
         </div>
         <div class="wl-card-metrics">
           <div class="wl-metric">

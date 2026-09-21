@@ -192,9 +192,9 @@ def _classify_stage(price_vs_ma_pct: float, ma_slope_pct: float) -> int:
 
 def _signal_from_stage(stage: int, price_vs_ma_pct: float) -> str:
     if stage == 2:
-        return "STRONG BUY" if price_vs_ma_pct > 10 else "BUY"
+        return "BUY"
     if stage == 4:
-        return "STRONG SELL" if price_vs_ma_pct < -10 else "SELL"
+        return "SELL"
     return "HOLD"
 
 
@@ -541,11 +541,9 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
         "signal": Choice(
             instructions="What trading signal is appropriate for this stock right now?",
             criteria={
-                "STRONG BUY": "Stock in strong uptrend with confirming indicators, excellent entry point",
                 "BUY": "Stock trending up or bottoming with favorable risk/reward",
                 "HOLD": "Mixed signals, neither clearly bullish nor bearish",
                 "SELL": "Stock weakening, declining trend, unfavorable outlook",
-                "STRONG SELL": "Stock in strong downtrend, high risk of further losses",
             },
         ),
         "news_sentiment": Score(
@@ -608,11 +606,9 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
         questions[f"peer_signal_{i}"] = Choice(
             instructions=f"What trading signal is appropriate for peer stock [{i}] ({p['ticker']})?",
             criteria={
-                "STRONG BUY": "Strong uptrend",
                 "BUY": "Uptrend or bottoming",
                 "HOLD": "Mixed signals",
                 "SELL": "Weakening",
-                "STRONG SELL": "Strong downtrend",
             },
         )
         questions[f"peer_momentum_{i}"] = Noul(
@@ -634,8 +630,8 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
     # Confidence: start from Jev's raw confidence, adjust for EMA/SMA slope agreement
     signal = signal_answer.choice
     confidence = round(signal_answer.confidence * 100)
-    bullish = signal in ("BUY", "STRONG BUY")
-    bearish = signal in ("SELL", "STRONG SELL")
+    bullish = signal == "BUY"
+    bearish = signal == "SELL"
     if (bullish or bearish) and req.emaAgreement is not None:
         if req.emaAgreement:
             # EMA and SMA slopes agree with each other — check if they agree with signal
@@ -724,7 +720,7 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
             "momentum": round(peer_mom, 2),
             "confidence": max(35, min(95, peer_conf)),
         })
-    signal_weight = {"STRONG BUY": 5, "BUY": 4, "HOLD": 3, "SELL": 2, "STRONG SELL": 1}
+    signal_weight = {"BUY": 3, "HOLD": 2, "SELL": 1}
     peer_ranking.sort(key=lambda x: (signal_weight.get(x["signal"], 3), x["confidence"]), reverse=True)
     for rank_idx, pr in enumerate(peer_ranking, 1):
         pr["rank"] = rank_idx
@@ -798,7 +794,7 @@ CRITICAL BEGINNER-FRIENDLY TONE & VOCABULARY RULES:
 
 Return this exact JSON schema:
 {{
-  "signal": "STRONG BUY" | "BUY" | "HOLD" | "SELL" | "STRONG SELL",
+  "signal": "BUY" | "HOLD" | "SELL",
   "confidence": <number 0-100>,
   "forecastCurve": [<12 numbers: predicted monthly closing prices for the next 12 months>],
   "adviceHeadline": "<short bold verdict>",
@@ -831,7 +827,7 @@ Include 5-7 factors. The forecastCurve should start near the current price and r
         text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
         result = json.loads(text)
 
-        VALID_SIGNALS = {"STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"}
+        VALID_SIGNALS = {"BUY", "HOLD", "SELL"}
         if result.get("signal") not in VALID_SIGNALS:
             result["signal"] = req.computedSignal or "HOLD"
         conf = result.get("confidence")
@@ -913,25 +909,16 @@ def _fetch_ticker_summary(ticker: str) -> dict:
         ma_slope = round((last_ma - ma_5_ago) / ma_5_ago * 100, 2) if ma_5_ago else 0.0
         stage = _classify_stage(price_vs_ma, ma_slope)
     signal = _signal_from_stage(stage, price_vs_ma)
-    daily_change = 0.0
-    daily_change_pct = 0.0
-    try:
-        daily = tkr.history(period="5d", interval="1d")
-        if not daily.empty and len(daily) >= 2:
-            daily = daily.dropna(subset=["Close"])
-            dc = daily["Close"].tolist()
-            if len(dc) >= 2:
-                daily_change = round(dc[-1] - dc[-2], 2)
-                daily_change_pct = round((dc[-1] - dc[-2]) / dc[-2] * 100, 2) if dc[-2] else 0.0
-    except Exception:
-        pass
+    monthly_change_pct = 0.0
+    if len(closes) >= 5:
+        month_ago = closes[-5] if len(closes) >= 5 else closes[0]
+        monthly_change_pct = round((last_close - month_ago) / month_ago * 100, 2) if month_ago else 0.0
     return {
         "ticker": ticker,
         "lastClose": last_close,
         "currency": currency,
         "yrReturn": yr_return,
-        "dailyChange": daily_change,
-        "dailyChangePct": daily_change_pct,
+        "monthlyChangePct": monthly_change_pct,
         "stage": stage,
         "stageLabel": STAGE_LABELS[stage],
         "signal": signal,
@@ -975,11 +962,9 @@ async def analyze_watchlist(req: WatchlistRequest):
                 questions[f"signal_{i}"] = Choice(
                     instructions=f"What trading signal is appropriate for stock [{i}] ({s['ticker']})?",
                     criteria={
-                        "STRONG BUY": "Strong uptrend",
                         "BUY": "Uptrend or bottoming",
                         "HOLD": "Mixed signals",
                         "SELL": "Weakening",
-                        "STRONG SELL": "Strong downtrend",
                     },
                 )
                 questions[f"momentum_{i}"] = Noul(
