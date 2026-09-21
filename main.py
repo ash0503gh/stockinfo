@@ -666,15 +666,9 @@ async def analyze_stock(req: AnalyzeRequest):
     else:
         gemini_result = await gemini_task
 
-    # Gemini drives the verdict (signal, headline, detail, action, factors, forecast)
+    # Gemini drives the full verdict (signal, confidence, headline, detail, action, factors, forecast)
     result = gemini_result
     result["jevPowered"] = bool(jev_extras)
-
-    # Override signal and confidence with deterministic stage-based calculation
-    if req.computedSignal:
-        result["signal"] = req.computedSignal
-    if req.computedConfidence is not None:
-        result["confidence"] = req.computedConfidence
 
     # Add Jev's news scoring on top
     result["newsScoring"] = jev_extras.get("newsScoring", [])
@@ -688,7 +682,17 @@ async def _legacy_gemini_analyze(req: AnalyzeRequest):
 
     stage_context = ""
     if req.stage and req.stageLabel:
-        stage_context = f"\nTechnical Stage Context:\n- Stan Weinstein Cycle: Stage {req.stage} ({req.stageLabel})\n- Price vs 30-Week Moving Average: {req.priceVsMaPct}%\n- Base Computed Signal: {req.computedSignal} ({req.computedConfidence}% confidence)\n"
+        direction = "above" if (req.priceVsMaPct or 0) >= 0 else "below"
+        slope_dir = "rising" if (req.maSlopePct or 0) >= 0 else "falling"
+        stage_context = f"""
+TECHNICAL STAGE ANALYSIS (Weinstein Stage Analysis, computed from real price data):
+- Current stage: Stage {req.stage} ({req.stageLabel})
+- Price is {abs(req.priceVsMaPct or 0)}% {direction} its 30-week moving average
+- The moving average is {slope_dir} ({req.maSlopePct}% over the last 5 weeks)
+- What the technical trend alone implies: {req.computedSignal} (confidence {req.computedConfidence}%)
+
+This is a real, data-backed signal — weigh it seriously. But it is ONE input, not the final answer. If the news headlines or the financial numbers above point clearly in a different direction — a bad earnings surprise, a major negative headline, deteriorating fundamentals despite a technical uptrend, or vice versa — you should adjust the signal and/or confidence away from what the technical trend alone implies. When you do diverge from the technical reading, say so explicitly in adviceDetail.
+"""
 
     prompt = f"""You are a helpful, clear financial advisor explaining stock analysis to everyday retail investors and beginners. Analyze the stock {req.ticker} and return ONLY valid JSON (no markdown, no backticks).
 
