@@ -35,6 +35,15 @@
         </div>
       </header>
 
+      <!-- Tab Navigation -->
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="dashboardView">Dashboard</button>
+        <button class="tab-btn" data-tab="watchlistView">Watchlist</button>
+      </div>
+
+      <!-- Dashboard View -->
+      <div id="dashboardView">
+
       <!-- Ticker identity & Peer Chips -->
       <div class="ticker-bar" id="tickerBar" style="display:none;">
         <div class="ticker-identity">
@@ -42,7 +51,14 @@
           <span class="ticker-name" id="tickerName"></span>
           <span class="ticker-currency" id="tickerCurrency"></span>
         </div>
-        <div class="peer-chips" id="peerChips"></div>
+        <div class="ticker-bar-right">
+          <button class="watchlist-star" id="watchlistStar" title="Add to watchlist">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+          </button>
+          <div class="peer-chips" id="peerChips"></div>
+        </div>
       </div>
 
       <div id="loadingMain" class="loading-pulse" style="display:none;">
@@ -79,6 +95,18 @@
               <span class="range-num" id="range52High">—</span>
             </div>
           </div>
+        </div>
+
+        <!-- Fundamentals -->
+        <div class="card fundamentals-card" id="fundamentalsCard" style="display:none;">
+          <div class="card-label">Fundamentals</div>
+          <div class="fundamentals-grid" id="fundamentalsGrid"></div>
+        </div>
+
+        <!-- Peer Comparison -->
+        <div class="card peer-card" id="peerCard" style="display:none;">
+          <div class="card-label">Peer Comparison</div>
+          <div id="peerGrid" class="peer-grid"></div>
         </div>
 
         <!-- AI Verdict -->
@@ -194,6 +222,24 @@
           <div class="card-label">Recent News</div>
           <div id="newsList"></div>
         </div>
+      </div>
+
+      </div><!-- /dashboardView -->
+
+      <!-- Watchlist View -->
+      <div id="watchlistView" style="display:none;">
+        <div class="watchlist-header">
+          <h2>Your Watchlist</h2>
+          <div class="watchlist-add">
+            <input type="text" id="watchlistInput" placeholder="Add ticker (e.g. AAPL, TCS.NS)…" />
+            <button id="watchlistAddBtn">Add</button>
+          </div>
+        </div>
+        <div id="watchlistLoading" class="loading-pulse" style="display:none;">
+          <div class="spinner"></div><span>Analyzing watchlist…</span>
+        </div>
+        <div id="watchlistEmpty" class="watchlist-empty">No stocks in watchlist yet. Add tickers above to get started.</div>
+        <div id="watchlistGrid" class="watchlist-grid"></div>
       </div>
 
       <footer>

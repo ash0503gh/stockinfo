@@ -423,48 +423,6 @@ async def get_news(ticker: str):
 
     top_articles = deduped[:8]
 
-    if TYPESAFE_API_KEY and top_articles:
-        try:
-            headlines_state = "\n".join(
-                f"[{i}] {a['title']} — {a['publisher']}"
-                for i, a in enumerate(top_articles)
-            )
-            questions = {}
-            for i, a in enumerate(top_articles):
-                questions[f"impact_{i}"] = Noul(
-                    instructions=f"Could headline [{i}] significantly move a stock's price?",
-                )
-                questions[f"sentiment_{i}"] = Score(
-                    instructions=f"Sentiment of headline [{i}] for investors",
-                    criteria=[
-                        "Very negative",
-                        "Somewhat negative",
-                        "Neutral",
-                        "Somewhat positive",
-                        "Very positive",
-                    ],
-                )
-
-            async with AsyncTypeSafeClient() as client:
-                jev_resp = await client.system_one(state=headlines_state, questions=questions)
-
-            final_articles = []
-            for i, a in enumerate(top_articles):
-                impact_noul = jev_resp.nouls[f"impact_{i}"].noul
-                sentiment_score = jev_resp.scores[f"sentiment_{i}"].score
-                final_articles.append({
-                    "title": a["title"],
-                    "link": a["link"],
-                    "publisher": a["publisher"],
-                    "pubDate": a["date"].strftime("%Y-%m-%d"),
-                    "isImpactful": impact_noul > 0.6,
-                    "sentimentScore": round(sentiment_score, 2),
-                    "impactConfidence": round(impact_noul, 2),
-                })
-            return {"articles": final_articles}
-        except Exception:
-            pass
-
     impact_keywords = ["surge", "plunge", "earnings", "profit", "loss", "acquisition", "fda", "merger", "dividend", "revenue", "multibagger"]
 
     final_articles = []
@@ -497,13 +455,72 @@ class AnalyzeRequest(BaseModel):
     priceVsMaPct: Optional[float] = None
     maSlopePct: Optional[float] = None
     emaAgreement: Optional[bool] = None
+    peerTickers: list[str] = []
     computedSignal: Optional[str] = None
     computedConfidence: Optional[int] = None
 
 
+def _fetch_peer_summary(ticker: str) -> dict:
+    """Fetch basic price and stage info for a peer ticker via yfinance."""
+    tkr = yf.Ticker(ticker)
+    hist = tkr.history(period="2y", interval="1wk")
+    if not hist.empty:
+        hist = hist.dropna(subset=["Close"])
+        hist = hist[hist["Close"] > 0]
+    if hist.empty or len(hist) < 10:
+        return None
+    try:
+        currency = tkr.fast_info.get("currency", "USD")
+    except Exception:
+        currency = "USD"
+    closes = hist["Close"].tolist()
+    last_close = round(closes[-1], 2)
+    close_series = pd.Series(closes)
+    window = min(30, len(closes) - 1)
+    ma_series = close_series.rolling(window=window).mean()
+    if pd.isna(ma_series.iloc[-1]):
+        return {"ticker": ticker, "price": last_close, "currency": currency, "stage": 1, "stageLabel": "Bottoming", "priceVsMaPct": 0.0, "maSlopePct": 0.0}
+    last_ma = ma_series.iloc[-1]
+    ma_5_ago = ma_series.iloc[-6] if len(ma_series) > 5 else ma_series.iloc[0]
+    price_vs_ma = round((last_close - last_ma) / last_ma * 100, 2)
+    ma_slope = round((last_ma - ma_5_ago) / ma_5_ago * 100, 2) if ma_5_ago else 0.0
+    stage = _classify_stage(price_vs_ma, ma_slope)
+    return {
+        "ticker": ticker,
+        "price": last_close,
+        "currency": currency,
+        "stage": stage,
+        "stageLabel": STAGE_LABELS[stage],
+        "priceVsMaPct": price_vs_ma,
+        "maSlopePct": ma_slope,
+    }
+
+
 async def _jev_analyze(req: AnalyzeRequest) -> dict:
-    """Call Jev for structured decisions: signal, confidence, news sentiment, factor impacts."""
-    headlines_block = "\n".join(f"- {h}" for h in req.newsHeadlines[:10]) or "No recent headlines."
+    """Unified Jev call: signal, factors, per-headline scoring, per-peer ranking."""
+    headlines = req.newsHeadlines[:8]
+    peer_tickers = (req.peerTickers or [])[:4]
+
+    # Fetch peer data in parallel
+    peer_data = []
+    if peer_tickers:
+        async def _get_peer(t):
+            try:
+                return await asyncio.to_thread(_fetch_peer_summary, t)
+            except Exception:
+                return None
+        peer_results = await asyncio.gather(*[_get_peer(t) for t in peer_tickers])
+        peer_data = [p for p in peer_results if p is not None]
+
+    # Build unified state
+    headlines_block = "\n".join(f"[{i}] {h}" for i, h in enumerate(headlines)) or "No recent headlines."
+    peer_block = ""
+    if peer_data:
+        peer_lines = [
+            f"[{i}] {p['ticker']}: {p['currency']} {p['price']}, Stage {p['stage']} ({p['stageLabel']}), Price vs MA: {p['priceVsMaPct']}%"
+            for i, p in enumerate(peer_data)
+        ]
+        peer_block = "\nPeer Stocks:\n" + "\n".join(peer_lines)
 
     state_text = (
         f"Stock: {req.ticker}\n"
@@ -516,8 +533,10 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
         f"MA Slope (5-week): {req.maSlopePct}%\n"
         f"EMA Agreement: {req.emaAgreement}\n"
         f"Recent Headlines:\n{headlines_block}"
+        f"{peer_block}"
     )
 
+    # Build questions dict — core questions
     questions = {
         "signal": Choice(
             instructions="What trading signal is appropriate for this stock right now?",
@@ -568,9 +587,42 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
         ),
     }
 
+    # Per-headline questions (up to 8 headlines x 2 = 16 questions)
+    for i in range(len(headlines)):
+        questions[f"headline_impact_{i}"] = Noul(
+            instructions=f"Could headline [{i}] significantly move the stock's price?",
+        )
+        questions[f"headline_sentiment_{i}"] = Score(
+            instructions=f"Sentiment of headline [{i}] for investors",
+            criteria=[
+                "Very negative",
+                "Somewhat negative",
+                "Neutral",
+                "Somewhat positive",
+                "Very positive",
+            ],
+        )
+
+    # Per-peer questions (up to 4 peers x 2 = 8 questions)
+    for i, p in enumerate(peer_data):
+        questions[f"peer_signal_{i}"] = Choice(
+            instructions=f"What trading signal is appropriate for peer stock [{i}] ({p['ticker']})?",
+            criteria={
+                "STRONG BUY": "Strong uptrend",
+                "BUY": "Uptrend or bottoming",
+                "HOLD": "Mixed signals",
+                "SELL": "Weakening",
+                "STRONG SELL": "Strong downtrend",
+            },
+        )
+        questions[f"peer_momentum_{i}"] = Noul(
+            instructions=f"Is peer stock [{i}] ({p['ticker']})'s momentum currently bullish?",
+        )
+
     async with AsyncTypeSafeClient() as client:
         response = await client.system_one(state=state_text, questions=questions)
 
+    # Extract core results
     signal_answer = response.choices["signal"]
     news_score = response.scores["news_sentiment"]
     trend_score = response.scores["trend_strength"]
@@ -579,8 +631,23 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
     momentum = response.nouls["momentum_bullish"]
     earnings = response.nouls["earnings_in_headlines"]
 
+    # Confidence: start from Jev's raw confidence, adjust for EMA/SMA slope agreement
+    signal = signal_answer.choice
     confidence = signal_answer.confidence
+    bullish = signal in ("BUY", "STRONG BUY")
+    bearish = signal in ("SELL", "STRONG SELL")
+    if (bullish or bearish) and req.emaAgreement is not None:
+        if req.emaAgreement:
+            # EMA and SMA slopes agree with each other — check if they agree with signal
+            sma_positive = (req.maSlopePct or 0) > 0
+            if sma_positive == bullish:
+                confidence += 5
+            else:
+                confidence -= 5
+        # If emaAgreement is False, slopes disagree with each other — no adjustment
+    confidence = max(35, min(95, confidence))
 
+    # Build factors
     news_impact = round((news_score.score - 3) * 3.3)
     trend_impact = round((trend_score.score - 3) * 3.3)
     risk_impact = round((risk_score.score - 2) * -5)
@@ -635,11 +702,37 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
             "impact": news_impact,
         })
 
+    # Per-headline scoring results
+    news_scoring = []
+    for i in range(len(headlines)):
+        impact_noul = response.nouls[f"headline_impact_{i}"].noul
+        sentiment_val = response.scores[f"headline_sentiment_{i}"].score
+        news_scoring.append({
+            "sentimentScore": round(sentiment_val, 2),
+            "impactConfidence": round(impact_noul, 2),
+        })
+
+    # Per-peer ranking results
+    peer_ranking = []
+    for i, p in enumerate(peer_data):
+        peer_sig = response.choices[f"peer_signal_{i}"].choice
+        peer_mom = response.nouls[f"peer_momentum_{i}"].noul
+        peer_ranking.append({
+            "ticker": p["ticker"],
+            "signal": peer_sig,
+            "momentum": round(peer_mom, 2),
+        })
+    peer_ranking.sort(key=lambda x: x["momentum"], reverse=True)
+    for rank_idx, pr in enumerate(peer_ranking, 1):
+        pr["rank"] = rank_idx
+
     return {
-        "signal": signal_answer.choice,
+        "signal": signal,
         "confidence": confidence,
         "factors": factors,
         "jevPowered": True,
+        "newsScoring": news_scoring,
+        "peerRanking": peer_ranking,
     }
 
 
@@ -732,7 +825,13 @@ async def analyze_stock(req: AnalyzeRequest):
         }
         prose["adviceAction"] = action_map.get(jev_result["signal"], "Watch and wait for clearer signals.")
 
-    return {**jev_result, **prose}
+    result = {**jev_result, **prose}
+    # Ensure newsScoring and peerRanking from Jev are in the response
+    if "newsScoring" not in result:
+        result["newsScoring"] = []
+    if "peerRanking" not in result:
+        result["peerRanking"] = []
+    return result
 
 
 async def _legacy_gemini_analyze(req: AnalyzeRequest):
@@ -810,6 +909,139 @@ Include 5-7 factors. The forecastCurve should start near the current price and r
         raise HTTPException(502, "Unexpected Gemini response format")
     except httpx.TimeoutException:
         raise HTTPException(504, "Gemini request timed out")
+
+
+# ── Fundamentals ──────────────────────────────────────────────────────
+
+@app.get("/api/fundamentals/{ticker}")
+async def get_fundamentals(ticker: str):
+    def _fetch():
+        info = yf.Ticker(ticker).info
+        keys = ["marketCap", "trailingPE", "forwardPE", "dividendYield",
+                "revenueGrowth", "profitMargins", "sector", "industry"]
+        return {k: info.get(k) for k in keys}
+
+    try:
+        data = await asyncio.to_thread(_fetch)
+    except Exception as e:
+        raise HTTPException(502, f"Failed to fetch fundamentals: {str(e)}")
+    return data
+
+
+# ── Watchlist Analyze ─────────────────────────────────────────────────
+
+def _fetch_ticker_summary(ticker: str) -> dict:
+    """Fetch basic price, return, and stage data for a watchlist ticker."""
+    tkr = yf.Ticker(ticker)
+    hist = tkr.history(period="1y", interval="1wk")
+    if not hist.empty:
+        hist = hist.dropna(subset=["Close"])
+        hist = hist[hist["Close"] > 0]
+    if hist.empty or len(hist) < 5:
+        return None
+    try:
+        currency = tkr.fast_info.get("currency", "USD")
+    except Exception:
+        currency = "USD"
+    closes = hist["Close"].tolist()
+    last_close = round(closes[-1], 2)
+    first_close = closes[0]
+    yr_return = round((last_close - first_close) / first_close * 100, 2) if first_close > 0 else 0.0
+    close_series = pd.Series(closes)
+    window = min(30, len(closes) - 1)
+    ma_series = close_series.rolling(window=window).mean()
+    if pd.isna(ma_series.iloc[-1]):
+        stage = 1
+        price_vs_ma = 0.0
+        ma_slope = 0.0
+    else:
+        last_ma = ma_series.iloc[-1]
+        ma_5_ago = ma_series.iloc[-6] if len(ma_series) > 5 else ma_series.iloc[0]
+        price_vs_ma = round((last_close - last_ma) / last_ma * 100, 2)
+        ma_slope = round((last_ma - ma_5_ago) / ma_5_ago * 100, 2) if ma_5_ago else 0.0
+        stage = _classify_stage(price_vs_ma, ma_slope)
+    signal = _signal_from_stage(stage, price_vs_ma)
+    return {
+        "ticker": ticker,
+        "lastClose": last_close,
+        "currency": currency,
+        "yrReturn": yr_return,
+        "stage": stage,
+        "stageLabel": STAGE_LABELS[stage],
+        "signal": signal,
+    }
+
+
+class WatchlistRequest(BaseModel):
+    tickers: list[str]
+
+
+@app.post("/api/watchlist/analyze")
+async def analyze_watchlist(req: WatchlistRequest):
+    tickers = req.tickers
+    if len(tickers) > 10:
+        tickers = tickers[:10]
+
+    # Fetch basic data for all tickers in parallel
+    async def _get_summary(t):
+        try:
+            return await asyncio.to_thread(_fetch_ticker_summary, t)
+        except Exception:
+            return None
+
+    summaries = await asyncio.gather(*[_get_summary(t) for t in tickers])
+    valid = [s for s in summaries if s is not None]
+
+    if not valid:
+        return {"results": []}
+
+    # One Jev call for all tickers if API key is set
+    if TYPESAFE_API_KEY and valid:
+        try:
+            state_lines = [
+                f"[{i}] {s['ticker']}: {s['currency']} {s['lastClose']}, 1Y Return: {s['yrReturn']}%, Stage {s['stage']} ({s['stageLabel']})"
+                for i, s in enumerate(valid)
+            ]
+            state_text = "Watchlist stocks:\n" + "\n".join(state_lines)
+
+            questions = {}
+            for i, s in enumerate(valid):
+                questions[f"signal_{i}"] = Choice(
+                    instructions=f"What trading signal is appropriate for stock [{i}] ({s['ticker']})?",
+                    criteria={
+                        "STRONG BUY": "Strong uptrend",
+                        "BUY": "Uptrend or bottoming",
+                        "HOLD": "Mixed signals",
+                        "SELL": "Weakening",
+                        "STRONG SELL": "Strong downtrend",
+                    },
+                )
+                questions[f"momentum_{i}"] = Noul(
+                    instructions=f"Is stock [{i}] ({s['ticker']})'s momentum currently bullish?",
+                )
+
+            async with AsyncTypeSafeClient() as client:
+                response = await client.system_one(state=state_text, questions=questions)
+
+            results = []
+            for i, s in enumerate(valid):
+                sig = response.choices[f"signal_{i}"]
+                mom = response.nouls[f"momentum_{i}"]
+                results.append({
+                    **s,
+                    "signal": sig.choice,
+                    "confidence": max(35, min(95, sig.confidence)),
+                    "momentum": round(mom.noul, 2),
+                })
+            return {"results": results}
+        except Exception:
+            pass
+
+    # Fallback without Jev
+    results = []
+    for s in valid:
+        results.append({**s, "confidence": 50, "momentum": 0.5})
+    return {"results": results}
 
 
 @app.get("/health")

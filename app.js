@@ -760,6 +760,7 @@ function renderAllUI() {
   el("content").style.display = "flex";
   renderTickerBar();
   renderPeerChips();
+  updateWatchlistStar();
   renderRangeBar();
   renderStats();
   renderStageCard();
@@ -768,12 +769,18 @@ function renderAllUI() {
   renderPriceChart();
   renderVolumeChart();
   renderNews();
+  loadFundamentals(state.ticker);
+
+  // Reset peer card until analysis provides data
+  const peerCard = el("peerCard");
+  if (peerCard) peerCard.style.display = "none";
 
   if (state.analysis) {
     renderVerdict();
     updateSignalStat();
     renderForecastChart();
     renderFactors();
+    if (state.analysis.peerRanking) renderPeerComparison(state.analysis.peerRanking);
   }
 }
 
@@ -1203,11 +1210,24 @@ async function runAiAnalysis() {
         emaAgreement: s ? s.emaAgreement : undefined,
         computedSignal: s ? s.signal : undefined,
         computedConfidence: s ? s.confidence : undefined,
+        peerTickers: (PEER_MAP[state.ticker] || []).slice(0, 4),
       }),
     });
     if (res.ok) {
       const d = await res.json();
-      if (d.signal && d.forecastCurve) { analysis = d; source = d.jevPowered ? "jev" : "gemini"; }
+      if (d.signal && d.forecastCurve) {
+        analysis = d;
+        source = d.jevPowered ? "jev" : "gemini";
+        // Apply news scoring from unified response
+        if (d.newsScoring && Array.isArray(d.newsScoring)) {
+          d.newsScoring.forEach(ns => {
+            if (ns.headline_index != null && state.news[ns.headline_index]) {
+              state.news[ns.headline_index].sentimentScore = ns.sentimentScore;
+              state.news[ns.headline_index].impactConfidence = ns.impactConfidence;
+            }
+          });
+        }
+      }
     }
   } catch {}
 
@@ -1232,6 +1252,8 @@ async function runAiAnalysis() {
   updateSignalStat();
   renderForecastChart();
   renderFactors();
+  renderNews(); // Re-render news with updated sentiment scores
+  if (analysis.peerRanking) renderPeerComparison(analysis.peerRanking);
 }
 
 function renderVerdict() {
@@ -1367,6 +1389,237 @@ window.addEventListener("resize", () => {
     });
   }, 250);
 });
+
+// ── Tab Navigation ───────────────────────────────────────────────────
+document.querySelectorAll(".tab-bar .tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-bar .tab-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const target = btn.dataset.tab;
+    el("dashboardView").style.display = target === "dashboardView" ? "" : "none";
+    el("watchlistView").style.display = target === "watchlistView" ? "" : "none";
+    if (target === "watchlistView") loadWatchlist();
+  });
+});
+
+function switchToDashboard(ticker) {
+  document.querySelectorAll(".tab-bar .tab-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.tab === "dashboardView");
+  });
+  el("dashboardView").style.display = "";
+  el("watchlistView").style.display = "none";
+  loadTicker(ticker);
+}
+
+// ── Watchlist Logic ──────────────────────────────────────────────────
+const WL_KEY = "stockdash_watchlist";
+
+function getWatchlistTickers() {
+  try { return JSON.parse(localStorage.getItem(WL_KEY)) || []; } catch { return []; }
+}
+
+function saveWatchlistTickers(tickers) {
+  localStorage.setItem(WL_KEY, JSON.stringify(tickers));
+}
+
+function addToWatchlist(ticker) {
+  const t = ticker.toUpperCase().trim();
+  if (!t) return;
+  const list = getWatchlistTickers();
+  if (list.includes(t)) return;
+  list.push(t);
+  saveWatchlistTickers(list);
+  updateWatchlistStar();
+  loadWatchlist();
+}
+
+function removeFromWatchlist(ticker) {
+  const list = getWatchlistTickers().filter(t => t !== ticker);
+  saveWatchlistTickers(list);
+  updateWatchlistStar();
+  loadWatchlist();
+}
+
+function updateWatchlistStar() {
+  const star = el("watchlistStar");
+  if (!star) return;
+  const inList = getWatchlistTickers().includes(state.ticker);
+  star.classList.toggle("active", inList);
+  star.title = inList ? "Remove from watchlist" : "Add to watchlist";
+}
+
+// Star button click
+document.getElementById("watchlistStar").addEventListener("click", () => {
+  const list = getWatchlistTickers();
+  if (list.includes(state.ticker)) {
+    removeFromWatchlist(state.ticker);
+  } else {
+    addToWatchlist(state.ticker);
+  }
+});
+
+// Watchlist Add button & input
+el("watchlistAddBtn").addEventListener("click", () => {
+  const input = el("watchlistInput");
+  const val = input.value.trim().toUpperCase();
+  if (val) {
+    addToWatchlist(val);
+    input.value = "";
+  }
+});
+el("watchlistInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") el("watchlistAddBtn").click();
+});
+
+async function loadWatchlist() {
+  const tickers = getWatchlistTickers();
+  const grid = el("watchlistGrid");
+  const empty = el("watchlistEmpty");
+  const loading = el("watchlistLoading");
+
+  if (!tickers.length) {
+    grid.innerHTML = "";
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+  loading.style.display = "flex";
+
+  try {
+    const res = await fetch("/api/watchlist/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tickers }),
+    });
+    if (!res.ok) throw new Error("Watchlist analyze failed");
+    const data = await res.json();
+    loading.style.display = "none";
+    renderWatchlistGrid(data.results || []);
+  } catch (err) {
+    loading.style.display = "none";
+    // Fallback: show tickers without analysis
+    grid.innerHTML = tickers.map(t => `
+      <div class="watchlist-card" data-ticker="${escapeHtml(t)}">
+        <div class="watchlist-card-top">
+          <span class="watchlist-card-ticker">${escapeHtml(t)}</span>
+          <button class="watchlist-card-remove" data-remove="${escapeHtml(t)}" title="Remove">&times;</button>
+        </div>
+        <div class="watchlist-card-stats"><span>Unable to load analysis</span></div>
+      </div>
+    `).join("");
+    bindWatchlistCards();
+  }
+}
+
+function renderWatchlistGrid(items) {
+  const grid = el("watchlistGrid");
+  grid.innerHTML = items.map(item => {
+    const sig = SIGNAL_META[item.signal] || SIGNAL_META.HOLD;
+    const sym = item.currency === "INR" ? "₹" : "$";
+    const yrStr = item.yrReturn != null ? `${item.yrReturn >= 0 ? "+" : ""}${Number(item.yrReturn).toFixed(1)}%` : "—";
+    const yrColor = item.yrReturn >= 0 ? "var(--green)" : "var(--red)";
+    return `
+      <div class="watchlist-card" data-ticker="${escapeHtml(item.ticker)}">
+        <div class="watchlist-card-top">
+          <span class="signal-pill" style="background:${sig.bg}; color:${sig.color}; font-size:10px; padding:2px 8px; border-radius:10px;">${item.signal || "HOLD"}</span>
+          <span class="watchlist-card-ticker">${escapeHtml(item.ticker)}</span>
+          <span class="watchlist-card-stage">Stage ${item.stage || "—"} (${escapeHtml(item.stageLabel || "—")})</span>
+          <button class="watchlist-card-remove" data-remove="${escapeHtml(item.ticker)}" title="Remove">&times;</button>
+        </div>
+        <div class="watchlist-card-stats">
+          <span>Price: ${sym}${fmt(item.lastClose)}</span>
+          <span style="color:${yrColor}">1Y: ${yrStr}</span>
+          <span>Conf: ${item.confidence || "—"}%</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+  bindWatchlistCards();
+}
+
+function bindWatchlistCards() {
+  const grid = el("watchlistGrid");
+  grid.querySelectorAll(".watchlist-card").forEach(card => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest(".watchlist-card-remove")) return;
+      switchToDashboard(card.dataset.ticker);
+    });
+  });
+  grid.querySelectorAll(".watchlist-card-remove").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeFromWatchlist(btn.dataset.remove);
+    });
+  });
+}
+
+// ── Fundamentals Fetching ────────────────────────────────────────────
+async function loadFundamentals(ticker) {
+  const card = el("fundamentalsCard");
+  const grid = el("fundamentalsGrid");
+  if (!card || !grid) return;
+
+  try {
+    const res = await fetch(`/api/fundamentals/${ticker}`);
+    if (!res.ok) { card.style.display = "none"; return; }
+    const d = await res.json();
+    card.style.display = "block";
+
+    const items = [
+      { label: "Market Cap", value: d.marketCap != null ? fmtBig(d.marketCap) : "—" },
+      { label: "P/E Ratio", value: d.peRatio != null ? Number(d.peRatio).toFixed(1) : "—" },
+      { label: "Forward P/E", value: d.forwardPE != null ? Number(d.forwardPE).toFixed(1) : "—" },
+      { label: "Div. Yield", value: d.dividendYield != null ? (d.dividendYield * 100).toFixed(2) + "%" : "—" },
+      { label: "Rev. Growth", value: d.revenueGrowth != null ? (d.revenueGrowth * 100).toFixed(1) + "%" : "—" },
+      { label: "Profit Margin", value: d.profitMargin != null ? (d.profitMargin * 100).toFixed(1) + "%" : "—" },
+      { label: "Sector", value: d.sector || "—" },
+      { label: "Industry", value: d.industry || "—" },
+    ];
+
+    grid.innerHTML = items.map(it => `
+      <div class="fundamentals-item">
+        <span class="f-label">${it.label}</span>
+        <span class="f-value">${escapeHtml(String(it.value))}</span>
+      </div>
+    `).join("");
+  } catch {
+    card.style.display = "none";
+  }
+}
+
+// ── Peer Comparison Rendering ────────────────────────────────────────
+function renderPeerComparison(peerRanking) {
+  const card = el("peerCard");
+  const grid = el("peerGrid");
+  if (!card || !grid || !peerRanking || !peerRanking.length) {
+    if (card) card.style.display = "none";
+    return;
+  }
+
+  card.style.display = "block";
+  grid.innerHTML = peerRanking.map(p => {
+    const sig = SIGNAL_META[p.signal] || SIGNAL_META.HOLD;
+    const isStrongest = p.rank === 1;
+    const momPct = Math.max(0, Math.min(100, (p.momentum || 50)));
+    const momColor = momPct >= 60 ? COLORS.green : momPct <= 40 ? COLORS.red : COLORS.amber;
+    return `
+      <div class="peer-item${isStrongest ? " peer-strongest" : ""}" data-ticker="${escapeHtml(p.ticker)}">
+        <div class="peer-item-top">
+          <span class="peer-item-ticker">${escapeHtml(p.ticker.replace(/\.(NS|BO)/, ""))}</span>
+          <span class="peer-item-rank">${isStrongest ? "Strongest" : "#" + p.rank}</span>
+        </div>
+        <span class="signal-pill" style="background:${sig.bg}; color:${sig.color};">${p.signal || "HOLD"}</span>
+        <div class="peer-momentum-bar">
+          <div class="peer-momentum-fill" style="width:${momPct}%; background:${momColor};"></div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  grid.querySelectorAll(".peer-item").forEach(item => {
+    item.addEventListener("click", () => loadTicker(item.dataset.ticker));
+  });
+}
 
 // ── Initialize App ────────────────────────────────────────────────────
 loadTicker(state.ticker);
