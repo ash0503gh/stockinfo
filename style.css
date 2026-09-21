@@ -1266,14 +1266,14 @@ footer {
 }
 .watchlist-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 14px;
 }
 .watchlist-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r);
-  padding: 16px 20px;
+  padding: 18px 22px;
   cursor: pointer;
   transition: all 0.2s ease;
   animation: fadeUp 0.4s ease forwards;
@@ -1283,28 +1283,71 @@ footer {
   background: var(--glass-hover);
   transform: translateY(-1px);
 }
-.watchlist-card-top {
+.wl-card-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
-.watchlist-card-ticker {
+.wl-card-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.wl-card-ticker {
   font-family: var(--mono);
   font-weight: 700;
-  font-size: 16px;
+  font-size: 18px;
   color: var(--text);
 }
-.watchlist-card-stage {
+.wl-card-stage {
   font-size: 11px;
   color: var(--text-sec);
 }
-.watchlist-card-stats {
+.wl-card-right {
   display: flex;
-  gap: 16px;
-  font-size: 12px;
+  align-items: center;
+  gap: 8px;
+}
+.wl-card-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.wl-card-price {
   font-family: var(--mono);
-  color: var(--text-sec);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--text);
+}
+.wl-card-daily {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+}
+.wl-card-metrics {
+  display: flex;
+  gap: 24px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.wl-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wl-metric-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.wl-metric-value {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
 }
 .watchlist-card-remove {
   background: transparent;
@@ -1315,39 +1358,10 @@ footer {
   padding: 2px 6px;
   border-radius: var(--r-xs);
   transition: all 0.2s ease;
-  margin-left: auto;
 }
 .watchlist-card-remove:hover {
   color: var(--red);
   background: var(--red-dim);
-}
-
-/* Fundamentals */
-.fundamentals-card .card-label {
-  margin-bottom: 14px;
-}
-.fundamentals-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-.fundamentals-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.fundamentals-item .f-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-.fundamentals-item .f-value {
-  font-size: 15px;
-  font-weight: 600;
-  font-family: var(--mono);
-  color: var(--text);
 }
 
 /* Peer Comparison */
@@ -1473,9 +1487,6 @@ footer {
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
-  }
-  .fundamentals-grid {
-    grid-template-columns: repeat(2, 1fr);
   }
   .watchlist-grid {
     grid-template-columns: 1fr;

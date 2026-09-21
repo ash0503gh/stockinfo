@@ -769,8 +769,6 @@ function renderAllUI() {
   renderPriceChart();
   renderVolumeChart();
   renderNews();
-  loadFundamentals(state.ticker);
-
   // Reset peer card until analysis provides data
   const peerCard = el("peerCard");
   if (peerCard) peerCard.style.display = "none";
@@ -1555,19 +1553,38 @@ function renderWatchlistGrid(items) {
     const sig = SIGNAL_META[item.signal] || SIGNAL_META.HOLD;
     const sym = item.currency === "INR" ? "₹" : "$";
     const yrStr = item.yrReturn != null ? `${item.yrReturn >= 0 ? "+" : ""}${Number(item.yrReturn).toFixed(1)}%` : "—";
-    const yrColor = item.yrReturn >= 0 ? "var(--green)" : "var(--red)";
+    const yrColor = item.yrReturn >= 0 ? COLORS.green : COLORS.red;
+    const dc = item.dailyChange || 0;
+    const dcp = item.dailyChangePct || 0;
+    const dcSign = dc >= 0 ? "+" : "";
+    const dcColor = dc >= 0 ? COLORS.green : COLORS.red;
+    const conf = item.confidence || "—";
+    const confColor = conf >= 70 ? COLORS.green : conf <= 45 ? COLORS.red : COLORS.amber;
     return `
       <div class="watchlist-card" data-ticker="${escapeHtml(item.ticker)}">
-        <div class="watchlist-card-top">
-          <span class="signal-pill" style="background:${sig.bg}; color:${sig.color}; font-size:10px; padding:2px 8px; border-radius:10px;">${item.signal || "HOLD"}</span>
-          <span class="watchlist-card-ticker">${escapeHtml(item.ticker)}</span>
-          <span class="watchlist-card-stage">Stage ${item.stage || "—"} (${escapeHtml(item.stageLabel || "—")})</span>
-          <button class="watchlist-card-remove" data-remove="${escapeHtml(item.ticker)}" title="Remove">&times;</button>
+        <div class="wl-card-header">
+          <div class="wl-card-left">
+            <span class="wl-card-ticker">${escapeHtml(item.ticker.replace(/\.(NS|BO)/, ""))}</span>
+            <span class="wl-card-stage">Stage ${item.stage || "—"} · ${escapeHtml(item.stageLabel || "—")}</span>
+          </div>
+          <div class="wl-card-right">
+            <span class="signal-pill" style="background:${sig.bg}; color:${sig.color};">${item.signal || "HOLD"}</span>
+            <button class="watchlist-card-remove" data-remove="${escapeHtml(item.ticker)}" title="Remove">&times;</button>
+          </div>
         </div>
-        <div class="watchlist-card-stats">
-          <span>Price: ${sym}${fmt(item.lastClose)}</span>
-          <span style="color:${yrColor}">1Y: ${yrStr}</span>
-          <span>Conf: ${item.confidence || "—"}%</span>
+        <div class="wl-card-price-row">
+          <span class="wl-card-price">${sym}${fmt(item.lastClose)}</span>
+          <span class="wl-card-daily" style="color:${dcColor}">${dcSign}${sym}${Math.abs(dc).toFixed(2)} (${dcSign}${dcp.toFixed(2)}%)</span>
+        </div>
+        <div class="wl-card-metrics">
+          <div class="wl-metric">
+            <span class="wl-metric-label">1Y Return</span>
+            <span class="wl-metric-value" style="color:${yrColor}">${yrStr}</span>
+          </div>
+          <div class="wl-metric">
+            <span class="wl-metric-label">Confidence</span>
+            <span class="wl-metric-value" style="color:${confColor}">${conf}%</span>
+          </div>
         </div>
       </div>
     `;
@@ -1589,40 +1606,6 @@ function bindWatchlistCards() {
       removeFromWatchlist(btn.dataset.remove);
     });
   });
-}
-
-// ── Fundamentals Fetching ────────────────────────────────────────────
-async function loadFundamentals(ticker) {
-  const card = el("fundamentalsCard");
-  const grid = el("fundamentalsGrid");
-  if (!card || !grid) return;
-
-  try {
-    const res = await fetch(`/api/fundamentals/${ticker}`);
-    if (!res.ok) { card.style.display = "none"; return; }
-    const d = await res.json();
-    card.style.display = "block";
-
-    const items = [
-      { label: "Market Cap", value: d.marketCap != null ? fmtBig(d.marketCap) : "—" },
-      { label: "P/E Ratio", value: d.trailingPE != null ? Number(d.trailingPE).toFixed(1) : "—" },
-      { label: "Forward P/E", value: d.forwardPE != null ? Number(d.forwardPE).toFixed(1) : "—" },
-      { label: "Div. Yield", value: d.dividendYield != null ? (d.dividendYield * 100).toFixed(2) + "%" : "—" },
-      { label: "Rev. Growth", value: d.revenueGrowth != null ? (d.revenueGrowth * 100).toFixed(1) + "%" : "—" },
-      { label: "Profit Margin", value: d.profitMargins != null ? (d.profitMargins * 100).toFixed(1) + "%" : "—" },
-      { label: "Sector", value: d.sector || "—" },
-      { label: "Industry", value: d.industry || "—" },
-    ];
-
-    grid.innerHTML = items.map(it => `
-      <div class="fundamentals-item">
-        <span class="f-label">${it.label}</span>
-        <span class="f-value">${escapeHtml(String(it.value))}</span>
-      </div>
-    `).join("");
-  } catch {
-    card.style.display = "none";
-  }
 }
 
 // ── Peer Comparison Rendering ────────────────────────────────────────

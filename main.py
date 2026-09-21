@@ -724,7 +724,7 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
             "momentum": round(peer_mom, 2),
             "confidence": max(35, min(95, peer_conf)),
         })
-    peer_ranking.sort(key=lambda x: x["momentum"], reverse=True)
+    peer_ranking.sort(key=lambda x: x["confidence"], reverse=True)
     for rank_idx, pr in enumerate(peer_ranking, 1):
         pr["rank"] = rank_idx
 
@@ -739,26 +739,48 @@ async def _jev_analyze(req: AnalyzeRequest) -> dict:
 
 
 async def _gemini_prose(req: AnalyzeRequest, jev_result: dict) -> dict:
-    """Call Gemini only for advisory text and forecast curve, using Jev's structured decisions."""
+    """Call Gemini for rich advisory text and forecast curve, using Jev's structured decisions as context."""
     if not GEMINI_API_KEY:
         return {}
 
-    prompt = f"""You are a helpful, clear financial advisor for beginners. The stock {req.ticker} has been analyzed:
+    news_block = "\n".join(f"- {h}" for h in req.newsHeadlines[:15]) or "No recent headlines."
+    factors_block = "\n".join(
+        f"- {f['name']}: {f['desc']} (impact: {f['impact']})" for f in jev_result.get("factors", [])
+    )
 
-Signal: {jev_result['signal']} (Confidence: {jev_result['confidence']}%)
-Price: {req.currency} {req.currentPrice}
-1-Year Return: {req.oneYearReturn}%
-Stage: {req.stage} ({req.stageLabel})
+    prompt = f"""You are a helpful, clear financial advisor explaining stock analysis to everyday retail investors and beginners. Analyze the stock {req.ticker} using the data below and return ONLY valid JSON (no markdown, no backticks).
 
-Write a brief analysis and return ONLY valid JSON (no markdown, no backticks):
+Current data:
+- Price: {req.currency} {req.currentPrice}
+- 1-Year Return: {req.oneYearReturn if req.oneYearReturn is not None else 'N/A'}%
+- Monthly Change: {req.monthlyChange if req.monthlyChange is not None else 'N/A'}%
+- Avg Monthly Volume: {req.avgVolume if req.avgVolume is not None else 'N/A'}
+- Stan Weinstein Stage: {req.stage} ({req.stageLabel})
+- Price vs 30-Week MA: {req.priceVsMaPct}%
+- AI Signal: {jev_result['signal']} ({jev_result['confidence']}% confidence)
+
+Key factors identified:
+{factors_block}
+
+Recent headlines:
+{news_block}
+
+CRITICAL BEGINNER-FRIENDLY TONE & VOCABULARY RULES:
+- Write in simple, clear, conversational English that anyone without a finance background can easily understand.
+- DO NOT use confusing Wall Street jargon or technical trader terms.
+- adviceHeadline: 6-10 words, bold and clear verdict.
+- adviceDetail: 2-3 simple, friendly sentences explaining why, referencing the stage, news sentiment, and key factors.
+- adviceAction: 1 actionable, practical sentence.
+
+Return this exact JSON schema:
 {{
-  "forecastCurve": [<12 numbers: predicted monthly closing prices starting near {req.currentPrice}>],
-  "adviceHeadline": "<6-10 word verdict matching the {jev_result['signal']} signal, in plain English>",
-  "adviceDetail": "<2-3 simple, friendly sentences for beginners>",
-  "adviceAction": "<1 actionable sentence>"
+  "forecastCurve": [<12 numbers: predicted monthly closing prices for the next 12 months starting near {req.currentPrice}>],
+  "adviceHeadline": "<short bold verdict>",
+  "adviceDetail": "<2-3 simple sentences with context>",
+  "adviceAction": "<1 simple, actionable sentence>"
 }}
 
-Use simple words. No jargon. The forecast should reflect the {jev_result['signal']} signal direction."""
+The forecast should reflect the {jev_result['signal']} signal direction."""
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -978,11 +1000,25 @@ def _fetch_ticker_summary(ticker: str) -> dict:
         ma_slope = round((last_ma - ma_5_ago) / ma_5_ago * 100, 2) if ma_5_ago else 0.0
         stage = _classify_stage(price_vs_ma, ma_slope)
     signal = _signal_from_stage(stage, price_vs_ma)
+    daily_change = 0.0
+    daily_change_pct = 0.0
+    try:
+        daily = tkr.history(period="5d", interval="1d")
+        if not daily.empty and len(daily) >= 2:
+            daily = daily.dropna(subset=["Close"])
+            dc = daily["Close"].tolist()
+            if len(dc) >= 2:
+                daily_change = round(dc[-1] - dc[-2], 2)
+                daily_change_pct = round((dc[-1] - dc[-2]) / dc[-2] * 100, 2) if dc[-2] else 0.0
+    except Exception:
+        pass
     return {
         "ticker": ticker,
         "lastClose": last_close,
         "currency": currency,
         "yrReturn": yr_return,
+        "dailyChange": daily_change,
+        "dailyChangePct": daily_change_pct,
         "stage": stage,
         "stageLabel": STAGE_LABELS[stage],
         "signal": signal,
