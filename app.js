@@ -1458,13 +1458,51 @@ document.getElementById("watchlistStar").addEventListener("click", () => {
   }
 });
 
-// Watchlist Add button & input
+// Watchlist search + add
+let watchlistSearchDebounce = null;
+let watchlistSelectedTicker = "";
+
+el("watchlistInput").addEventListener("input", () => {
+  clearTimeout(watchlistSearchDebounce);
+  const q = el("watchlistInput").value.trim();
+  const dropdown = el("watchlistDropdown");
+  if (q.length < 1) { dropdown.innerHTML = ""; dropdown.style.display = "none"; watchlistSelectedTicker = ""; return; }
+  watchlistSearchDebounce = setTimeout(async () => {
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.results || !data.results.length) { dropdown.innerHTML = `<div class="wl-dd-empty">No results</div>`; dropdown.style.display = "block"; return; }
+      dropdown.innerHTML = data.results.slice(0, 6).map(r => `
+        <div class="wl-dd-item" data-symbol="${escapeHtml(r.symbol)}">
+          <span class="wl-dd-symbol">${escapeHtml(r.symbol)}</span>
+          <span class="wl-dd-name">${escapeHtml(r.name)}</span>
+          <span class="wl-dd-exchange">${escapeHtml(r.exchange)}</span>
+        </div>
+      `).join("");
+      dropdown.style.display = "block";
+      dropdown.querySelectorAll(".wl-dd-item").forEach(item => {
+        item.addEventListener("click", () => {
+          watchlistSelectedTicker = item.dataset.symbol;
+          el("watchlistInput").value = item.dataset.symbol;
+          dropdown.style.display = "none";
+          addToWatchlist(watchlistSelectedTicker);
+          el("watchlistInput").value = "";
+          watchlistSelectedTicker = "";
+        });
+      });
+    } catch {}
+  }, 300);
+});
+
 el("watchlistAddBtn").addEventListener("click", () => {
   const input = el("watchlistInput");
-  const val = input.value.trim().toUpperCase();
+  const val = watchlistSelectedTicker || input.value.trim().toUpperCase();
   if (val) {
     addToWatchlist(val);
     input.value = "";
+    watchlistSelectedTicker = "";
+    el("watchlistDropdown").style.display = "none";
   }
 });
 el("watchlistInput").addEventListener("keydown", (e) => {
@@ -1600,7 +1638,8 @@ function renderPeerComparison(peerRanking) {
   grid.innerHTML = peerRanking.map(p => {
     const sig = SIGNAL_META[p.signal] || SIGNAL_META.HOLD;
     const isStrongest = p.rank === 1;
-    const momPct = Math.max(0, Math.min(100, (p.momentum || 50)));
+    const momRaw = p.momentum != null ? p.momentum : 0.5;
+    const momPct = Math.max(0, Math.min(100, Math.round(momRaw <= 1 ? momRaw * 100 : momRaw)));
     const momColor = momPct >= 60 ? COLORS.green : momPct <= 40 ? COLORS.red : COLORS.amber;
     return `
       <div class="peer-item${isStrongest ? " peer-strongest" : ""}" data-ticker="${escapeHtml(p.ticker)}">

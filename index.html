@@ -103,12 +103,6 @@
           <div class="fundamentals-grid" id="fundamentalsGrid"></div>
         </div>
 
-        <!-- Peer Comparison -->
-        <div class="card peer-card" id="peerCard" style="display:none;">
-          <div class="card-label">Peer Comparison</div>
-          <div id="peerGrid" class="peer-grid"></div>
-        </div>
-
         <!-- AI Verdict -->
         <div id="aiLoading" class="loading-pulse" style="display:none;">
           <div class="spinner"></div>
@@ -217,6 +211,12 @@
           </div>
         </div>
 
+        <!-- Peer Comparison -->
+        <div class="card peer-card" id="peerCard" style="display:none;">
+          <div class="card-label">Peer Comparison</div>
+          <div id="peerGrid" class="peer-grid"></div>
+        </div>
+
         <!-- News -->
         <div class="card" id="newsCard" style="display:none;">
           <div class="card-label">Recent News</div>
@@ -231,7 +231,10 @@
         <div class="watchlist-header">
           <h2>Your Watchlist</h2>
           <div class="watchlist-add">
-            <input type="text" id="watchlistInput" placeholder="Add ticker (e.g. AAPL, TCS.NS)…" />
+            <div class="watchlist-search-wrap">
+              <input type="text" id="watchlistInput" placeholder="Search stocks to add…" autocomplete="off" />
+              <div class="watchlist-search-dropdown" id="watchlistDropdown"></div>
+            </div>
             <button id="watchlistAddBtn">Add</button>
           </div>
         </div>

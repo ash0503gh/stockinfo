@@ -916,10 +916,27 @@ Include 5-7 factors. The forecastCurve should start near the current price and r
 @app.get("/api/fundamentals/{ticker}")
 async def get_fundamentals(ticker: str):
     def _fetch():
-        info = yf.Ticker(ticker).info
-        keys = ["marketCap", "trailingPE", "forwardPE", "dividendYield",
-                "revenueGrowth", "profitMargins", "sector", "industry"]
-        return {k: info.get(k) for k in keys}
+        tkr = yf.Ticker(ticker)
+        result = {
+            "marketCap": None, "trailingPE": None, "forwardPE": None,
+            "dividendYield": None, "revenueGrowth": None, "profitMargins": None,
+            "sector": None, "industry": None,
+        }
+        try:
+            fi = tkr.fast_info
+            if fi:
+                result["marketCap"] = fi.get("marketCap") or fi.get("market_cap")
+        except Exception:
+            pass
+        try:
+            info = tkr.info
+            if info and isinstance(info, dict):
+                for k in result:
+                    if result[k] is None and k in info and info[k] is not None:
+                        result[k] = info[k]
+        except Exception:
+            pass
+        return result
 
     try:
         data = await asyncio.to_thread(_fetch)

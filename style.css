@@ -1202,6 +1202,62 @@ footer {
   transform: translateY(-1px);
   box-shadow: 0 2px 8px var(--blue-glow);
 }
+.watchlist-search-wrap {
+  position: relative;
+  flex: 1;
+}
+.watchlist-search-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-top: 4px;
+  z-index: 100;
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+.wl-dd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.wl-dd-item:hover {
+  background: var(--glass-hover);
+}
+.wl-dd-symbol {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--text);
+  font-size: 13px;
+  min-width: 80px;
+}
+.wl-dd-name {
+  color: var(--text-sec);
+  font-size: 12px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wl-dd-exchange {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+.wl-dd-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
 .watchlist-empty {
   text-align: center;
   color: var(--text-muted);
