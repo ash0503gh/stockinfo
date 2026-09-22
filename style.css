@@ -1122,18 +1122,64 @@ footer {
   fill: var(--amber);
 }
 
+/* Watchlist Tabs */
+.wl-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.wl-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--dim);
+  font-size: 13px;
+  font-family: var(--mono);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.wl-tab:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+.wl-tab-active { background: rgba(255,255,255,0.06); color: var(--text); border-color: var(--blue); }
+.wl-tab-name { outline: none; }
+.wl-tab-name[contenteditable="true"] {
+  border-bottom: 1px dashed var(--blue);
+  min-width: 40px;
+}
+.wl-tab-del {
+  font-size: 11px;
+  opacity: 0;
+  color: var(--dim);
+  cursor: pointer;
+  transition: opacity 0.15s, color 0.15s;
+}
+.wl-tab:hover .wl-tab-del { opacity: 1; }
+.wl-tab-del:hover { color: var(--red); }
+.wl-tab-add {
+  border-style: dashed;
+  color: var(--dim);
+  font-size: 16px;
+  padding: 5px 12px;
+}
+.wl-tab-add:hover { color: var(--blue); border-color: var(--blue); }
+
 /* Watchlist View */
 .watchlist-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 20px;
-}
-.watchlist-header h2 {
-  font-size: 20px;
-  font-weight: 600;
 }
 .watchlist-add {
   display: flex;

@@ -1299,7 +1299,7 @@ document.querySelectorAll(".tab-bar .tab-btn").forEach(btn => {
     const target = btn.dataset.tab;
     el("dashboardView").style.display = target === "dashboardView" ? "" : "none";
     el("watchlistView").style.display = target === "watchlistView" ? "" : "none";
-    if (target === "watchlistView") loadWatchlist();
+    if (target === "watchlistView") { renderWlTabs(); loadWatchlist(); }
   });
 });
 
@@ -1314,50 +1314,160 @@ function switchToDashboard(ticker) {
 
 // ── Watchlist Logic ──────────────────────────────────────────────────
 const WL_KEY = "stockdash_watchlist";
+const WL_V2_KEY = "stockdash_wl_v2";
+const WL_MAX_LISTS = 6;
+const WL_MAX_PER_LIST = 10;
+let wlActiveIdx = 0;
 
-function getWatchlistTickers() {
-  try { return JSON.parse(localStorage.getItem(WL_KEY)) || []; } catch { return []; }
+function getWlStore() {
+  try {
+    const v2 = JSON.parse(localStorage.getItem(WL_V2_KEY));
+    if (v2 && Array.isArray(v2.lists) && v2.lists.length) return v2;
+  } catch {}
+  try {
+    const old = JSON.parse(localStorage.getItem(WL_KEY));
+    if (Array.isArray(old) && old.length) {
+      const migrated = { lists: [{ name: "Watchlist 1", tickers: old.slice(0, WL_MAX_PER_LIST) }] };
+      localStorage.setItem(WL_V2_KEY, JSON.stringify(migrated));
+      return migrated;
+    }
+  } catch {}
+  return { lists: [{ name: "Watchlist 1", tickers: [] }] };
 }
 
-function saveWatchlistTickers(tickers) {
-  localStorage.setItem(WL_KEY, JSON.stringify(tickers));
+function saveWlStore(store) {
+  localStorage.setItem(WL_V2_KEY, JSON.stringify(store));
+}
+
+function getActiveList() {
+  const store = getWlStore();
+  if (wlActiveIdx >= store.lists.length) wlActiveIdx = 0;
+  return store.lists[wlActiveIdx];
+}
+
+function getWatchlistTickers() {
+  return getActiveList().tickers;
 }
 
 function addToWatchlist(ticker) {
   const t = ticker.toUpperCase().trim();
   if (!t) return;
-  const list = getWatchlistTickers();
-  if (list.includes(t)) return;
-  list.push(t);
-  saveWatchlistTickers(list);
+  const store = getWlStore();
+  const list = store.lists[wlActiveIdx];
+  if (list.tickers.includes(t)) return;
+  if (list.tickers.length >= WL_MAX_PER_LIST) return;
+  list.tickers.push(t);
+  saveWlStore(store);
   updateWatchlistStar();
   loadWatchlist();
 }
 
 function removeFromWatchlist(ticker) {
-  const list = getWatchlistTickers().filter(t => t !== ticker);
-  saveWatchlistTickers(list);
+  const store = getWlStore();
+  store.lists[wlActiveIdx].tickers = store.lists[wlActiveIdx].tickers.filter(t => t !== ticker);
+  saveWlStore(store);
   updateWatchlistStar();
   loadWatchlist();
+}
+
+function isInAnyWatchlist(ticker) {
+  return getWlStore().lists.some(l => l.tickers.includes(ticker));
 }
 
 function updateWatchlistStar() {
   const star = el("watchlistStar");
   if (!star) return;
-  const inList = getWatchlistTickers().includes(state.ticker);
+  const inList = isInAnyWatchlist(state.ticker);
   star.classList.toggle("active", inList);
   star.title = inList ? "Remove from watchlist" : "Add to watchlist";
 }
 
-// Star button click
 document.getElementById("watchlistStar").addEventListener("click", () => {
-  const list = getWatchlistTickers();
-  if (list.includes(state.ticker)) {
-    removeFromWatchlist(state.ticker);
+  const store = getWlStore();
+  const listIdx = store.lists.findIndex(l => l.tickers.includes(state.ticker));
+  if (listIdx >= 0) {
+    store.lists[listIdx].tickers = store.lists[listIdx].tickers.filter(t => t !== state.ticker);
+    saveWlStore(store);
+    updateWatchlistStar();
+    if (listIdx === wlActiveIdx) loadWatchlist();
   } else {
     addToWatchlist(state.ticker);
   }
 });
+
+function renderWlTabs() {
+  const bar = el("wlTabBar");
+  if (!bar) return;
+  const store = getWlStore();
+  let html = store.lists.map((l, i) => {
+    const active = i === wlActiveIdx ? " wl-tab-active" : "";
+    const canDelete = store.lists.length > 1 ? `<span class="wl-tab-del" data-delidx="${i}" title="Delete list">✕</span>` : "";
+    return `<button class="wl-tab${active}" data-tabidx="${i}"><span class="wl-tab-name" data-nameidx="${i}">${escapeHtml(l.name)}</span>${canDelete}</button>`;
+  }).join("");
+  if (store.lists.length < WL_MAX_LISTS) {
+    html += `<button class="wl-tab wl-tab-add" id="wlAddTab" title="Add watchlist">+</button>`;
+  }
+  bar.innerHTML = html;
+
+  bar.querySelectorAll(".wl-tab[data-tabidx]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      if (e.target.classList.contains("wl-tab-del")) return;
+      const idx = parseInt(btn.dataset.tabidx);
+      if (idx !== wlActiveIdx) { wlActiveIdx = idx; renderWlTabs(); loadWatchlist(); }
+    });
+  });
+
+  bar.querySelectorAll(".wl-tab-name").forEach(span => {
+    span.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      const idx = parseInt(span.dataset.nameidx);
+      const current = store.lists[idx].name;
+      span.contentEditable = "true";
+      span.focus();
+      const sel = window.getSelection();
+      sel.selectAllChildren(span);
+      const finishRename = () => {
+        span.contentEditable = "false";
+        const newName = span.textContent.trim().slice(0, 30) || current;
+        const s = getWlStore();
+        s.lists[idx].name = newName;
+        saveWlStore(s);
+        renderWlTabs();
+      };
+      span.addEventListener("blur", finishRename, { once: true });
+      span.addEventListener("keydown", (ke) => { if (ke.key === "Enter") { ke.preventDefault(); span.blur(); } }, { once: true });
+    });
+  });
+
+  bar.querySelectorAll(".wl-tab-del").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.delidx);
+      const s = getWlStore();
+      s.lists.splice(idx, 1);
+      if (wlActiveIdx >= s.lists.length) wlActiveIdx = s.lists.length - 1;
+      saveWlStore(s);
+      renderWlTabs();
+      loadWatchlist();
+    });
+  });
+
+  const addBtn = el("wlAddTab");
+  if (addBtn) {
+    addBtn.addEventListener("click", () => {
+      const s = getWlStore();
+      if (s.lists.length >= WL_MAX_LISTS) return;
+      const num = s.lists.length + 1;
+      s.lists.push({ name: `Watchlist ${num}`, tickers: [] });
+      saveWlStore(s);
+      wlActiveIdx = s.lists.length - 1;
+      renderWlTabs();
+      loadWatchlist();
+      const nameSpan = bar.querySelector(`.wl-tab-name[data-nameidx="${wlActiveIdx}"]`);
+      if (nameSpan) nameSpan.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+  }
+}
 
 // Watchlist search + add
 let watchlistSearchDebounce = null;
