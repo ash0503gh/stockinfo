@@ -1359,7 +1359,7 @@ function addToWatchlist(ticker) {
   list.tickers.push(t);
   saveWlStore(store);
   updateWatchlistStar();
-  loadWatchlist();
+  loadWatchlist(true);
 }
 
 function removeFromWatchlist(ticker) {
@@ -1367,7 +1367,7 @@ function removeFromWatchlist(ticker) {
   store.lists[wlActiveIdx].tickers = store.lists[wlActiveIdx].tickers.filter(t => t !== ticker);
   saveWlStore(store);
   updateWatchlistStar();
-  loadWatchlist();
+  loadWatchlist(true);
 }
 
 function isInAnyWatchlist(ticker) {
@@ -1443,12 +1443,13 @@ function renderWlTabs() {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const idx = parseInt(btn.dataset.delidx);
+      delete wlCache[idx];
       const s = getWlStore();
       s.lists.splice(idx, 1);
       if (wlActiveIdx >= s.lists.length) wlActiveIdx = s.lists.length - 1;
       saveWlStore(s);
       renderWlTabs();
-      loadWatchlist();
+      loadWatchlist(true);
     });
   });
 
@@ -1520,8 +1521,9 @@ el("watchlistInput").addEventListener("keydown", (e) => {
 let wlSortKey = "ticker";
 let wlSortAsc = true;
 let wlData = [];
+const wlCache = {};
 
-async function loadWatchlist() {
+async function loadWatchlist(force) {
   const tickers = getWatchlistTickers();
   const grid = el("watchlistGrid");
   const empty = el("watchlistEmpty");
@@ -1530,9 +1532,20 @@ async function loadWatchlist() {
   if (!tickers.length) {
     grid.innerHTML = "";
     wlData = [];
+    delete wlCache[wlActiveIdx];
     empty.style.display = "block";
     return;
   }
+
+  const cacheKey = wlActiveIdx;
+  const cached = wlCache[cacheKey];
+  if (!force && cached && cached.key === tickers.join(",")) {
+    wlData = cached.data;
+    empty.style.display = "none";
+    renderWatchlistTable();
+    return;
+  }
+
   empty.style.display = "none";
   loading.style.display = "flex";
 
@@ -1546,6 +1559,7 @@ async function loadWatchlist() {
     const data = await res.json();
     loading.style.display = "none";
     wlData = data.results || [];
+    wlCache[cacheKey] = { key: tickers.join(","), data: wlData };
     renderWatchlistTable();
   } catch (err) {
     loading.style.display = "none";
