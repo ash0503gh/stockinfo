@@ -1137,7 +1137,7 @@ footer {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
   padding: 7px 14px;
   border: 1px solid var(--border);
   border-bottom: none;
@@ -1160,6 +1160,8 @@ footer {
 .wl-tab-del {
   font-size: 11px;
   opacity: 0;
+  padding: 2px 4px;
+  margin-left: 2px;
   color: var(--dim);
   cursor: pointer;
   transition: opacity 0.15s, color 0.15s;
