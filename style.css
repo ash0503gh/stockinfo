@@ -1130,7 +1130,9 @@ footer {
   margin-bottom: 16px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+.wl-tab-bar::-webkit-scrollbar { display: none; }
 .wl-tab {
   position: relative;
   display: flex;
@@ -1166,6 +1168,7 @@ footer {
 .wl-tab-del:hover { color: var(--red); }
 .wl-tab-add {
   border-style: dashed;
+  border-bottom: none;
   color: var(--dim);
   font-size: 16px;
   padding: 5px 12px;
