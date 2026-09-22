@@ -677,7 +677,7 @@ async def analyze_stock(req: AnalyzeRequest):
     else:
         gemini_result = await gemini_task
 
-    # Gemini drives the full verdict (signal, confidence, headline, detail, action, factors, forecast)
+    # Gemini drives the full verdict (signal, confidence, headline, detail, action, factors)
     result = gemini_result
     result["jevPowered"] = bool(jev_extras)
 
@@ -726,7 +726,6 @@ Return this exact JSON schema:
 {{
   "signal": "BUY" | "HOLD" | "SELL",
   "confidence": <number 0-100>,
-  "forecastCurve": [<12 numbers: predicted monthly closing prices for the next 12 months>],
   "adviceHeadline": "<short bold verdict>",
   "adviceDetail": "<2-3 simple sentences>",
   "adviceAction": "<1 simple, actionable sentence>",
@@ -735,7 +734,7 @@ Return this exact JSON schema:
   ]
 }}
 
-Include 5-7 factors. The forecastCurve should start near the current price and reflect your signal direction."""
+Include 5-7 factors."""
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],

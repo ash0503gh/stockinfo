@@ -133,16 +133,6 @@ function getStageBasedAdvice(stageData, yrRet) {
   return templates[stage] || templates[1];
 }
 
-function generateForecastFromStage(stageData, currentPrice) {
-  const slope = stageData ? stageData.maSlopePct : 0;
-  const monthlyDrift = (slope / 5 / 100) * 4.33;
-  const clampedDrift = Math.max(-0.04, Math.min(0.04, monthlyDrift));
-  const curve = [currentPrice];
-  for (let i = 1; i <= 12; i++) {
-    curve.push(Math.round(curve[i - 1] * (1 + clampedDrift) * 100) / 100);
-  }
-  return curve;
-}
 
 function generateFactorsFromStage(stageData, ticker) {
   if (!stageData) return [];
@@ -749,7 +739,6 @@ function renderAllUI() {
   if (state.analysis) {
     renderVerdict();
     updateSignalStat();
-    renderForecastChart();
     renderFactors();
   }
 }
@@ -1097,34 +1086,6 @@ function renderVolumeChart() {
   });
 }
 
-function renderForecastChart() {
-  const a = state.analysis;
-  if (!a || !a.forecastCurve) return;
-  const stats = state._stats;
-  const months = ["Now", "M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "M10", "M11", "M12"];
-  const endPrice = a.forecastCurve[a.forecastCurve.length - 1];
-  const isUp = endPrice >= stats.lastClose;
-  const diff = ((endPrice - stats.lastClose) / stats.lastClose * 100).toFixed(1);
-  const lineColor = isUp ? COLORS.green : COLORS.red;
-
-  const deltaEl = el("forecastDelta");
-  if (deltaEl) {
-    deltaEl.textContent = `${isUp ? "▲" : "▼"} ${diff}%`;
-    deltaEl.style.color = lineColor;
-    deltaEl.style.background = isUp ? COLORS.greenDim : COLORS.redDim;
-  }
-
-  const canvas = el("forecastChart");
-  if (!canvas) return;
-  drawLineChart(canvas, a.forecastCurve, {
-    color: lineColor,
-    fillColor: lineColor,
-    refValue: stats.lastClose,
-    yFormat: (v) => currSym(state.currency) + fmt(v, 0),
-    xLabels: months,
-    tooltipFormat: (v, i) => `${months[i]}  ${currSym(state.currency)}${fmt(v)}`,
-  });
-}
 
 // ── AI Analysis (Gemini with Stage-Grounded Fallback) ─────────────────
 async function runAiAnalysis() {
@@ -1159,7 +1120,7 @@ async function runAiAnalysis() {
     });
     if (res.ok) {
       const d = await res.json();
-      if (d.signal && d.forecastCurve) {
+      if (d.signal) {
         analysis = d;
         source = d.jevPowered ? "jev" : "gemini";
         // Apply news scoring from unified response
@@ -1178,11 +1139,9 @@ async function runAiAnalysis() {
   if (!analysis) {
     const advice = getStageBasedAdvice(s, stats.yrReturn);
     const factors = generateFactorsFromStage(s, state.ticker);
-    const forecastCurve = generateForecastFromStage(s, stats.lastClose);
     analysis = {
       signal: s ? s.signal : "HOLD",
       confidence: s ? s.confidence : 60,
-      forecastCurve,
       ...advice,
       factors,
     };
@@ -1194,7 +1153,6 @@ async function runAiAnalysis() {
   if (el("aiLoading")) el("aiLoading").style.display = "none";
   renderVerdict();
   updateSignalStat();
-  renderForecastChart();
   renderFactors();
   renderNews(); // Re-render news with updated sentiment scores
 }
@@ -1324,7 +1282,7 @@ window.addEventListener("resize", () => {
   lastWidth = window.innerWidth;
   clearTimeout(resizeDebounce);
   resizeDebounce = setTimeout(() => {
-    ["priceChart", "volumeChart", "forecastChart", "stageChart"].forEach((id) => {
+    ["priceChart", "volumeChart", "stageChart"].forEach((id) => {
       const canvas = el(id);
       if (!canvas) return;
       const fn = lastDraw.get(canvas);

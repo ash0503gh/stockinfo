@@ -935,13 +935,6 @@ h1 {
   box-shadow: 0 0 8px var(--cyan);
 }
 
-#forecastDelta {
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: var(--mono);
-}
 
 .factor-item {
   display: flex;
