@@ -29,7 +29,8 @@ def _get_nse_live():
 
 def _nse_quote(symbol: str) -> dict | None:
     """Fetch live quote from NSE India for a .NS ticker. Returns dict with
-    lastPrice, previousClose, or None on failure."""
+    lastPrice, previousClose, or None on failure. Prefers official VWAP
+    closePrice over lastPrice when available (after market close)."""
     nse_symbol = symbol.replace(".NS", "")
     try:
         nse = _get_nse_live()
@@ -38,9 +39,13 @@ def _nse_quote(symbol: str) -> dict | None:
         md = data.get("metaData", {})
         last_price = ti.get("lastPrice") or md.get("lastPrice")
         prev_close = md.get("previousClose")
+        close_price = md.get("closePrice")
         if last_price and prev_close:
+            best_price = round(float(last_price), 2)
+            if close_price and float(close_price) > 0:
+                best_price = round(float(close_price), 2)
             return {
-                "lastPrice": round(float(last_price), 2),
+                "lastPrice": best_price,
                 "previousClose": round(float(prev_close), 2),
             }
     except Exception:
