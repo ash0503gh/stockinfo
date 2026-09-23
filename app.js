@@ -1507,7 +1507,9 @@ el("watchlistInput").addEventListener("input", () => {
   if (q.length < 1) { dropdown.innerHTML = ""; dropdown.style.display = "none"; watchlistSelectedTicker = ""; return; }
   watchlistSearchDebounce = setTimeout(async () => {
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      const currentQ = el("watchlistInput").value.trim();
+      if (currentQ.length < 1) return;
+      const res = await fetch(`/api/search?q=${encodeURIComponent(currentQ)}`);
       if (!res.ok) return;
       const data = await res.json();
       if (!data.results || !data.results.length) { dropdown.innerHTML = `<div class="wl-dd-empty">No results</div>`; dropdown.style.display = "block"; return; }
