@@ -1395,6 +1395,28 @@ document.getElementById("watchlistStar").addEventListener("click", () => {
   }
 });
 
+function showWlDeleteConfirm(tabName, onConfirm) {
+  const existing = document.getElementById("wlDeleteOverlay");
+  if (existing) existing.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "wlDeleteOverlay";
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;";
+  const box = document.createElement("div");
+  box.style.cssText = "background:var(--surface,#1a1d23);border:1px solid var(--border,#2a2d35);border-radius:12px;padding:24px;max-width:320px;width:90%;text-align:center;";
+  box.innerHTML = `
+    <div style="font-size:16px;font-weight:600;color:var(--text,#e0e0e0);margin-bottom:8px;">Delete "${tabName}"?</div>
+    <div style="font-size:13px;color:var(--text-sec,#8b8d93);margin-bottom:20px;">All stocks in this list will be removed.</div>
+    <div style="display:flex;gap:10px;justify-content:center;">
+      <button id="wlDelNo" style="padding:8px 24px;background:var(--glass,#252830);border:1px solid var(--border,#2a2d35);color:var(--text,#e0e0e0);border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">No</button>
+      <button id="wlDelYes" style="padding:8px 24px;background:#e24b4a;border:none;color:white;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">Yes, delete</button>
+    </div>`;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+  box.querySelector("#wlDelNo").addEventListener("click", () => overlay.remove());
+  box.querySelector("#wlDelYes").addEventListener("click", () => { overlay.remove(); onConfirm(); });
+}
+
 function renderWlTabs() {
   const bar = el("wlTabBar");
   if (!bar) return;
@@ -1443,13 +1465,17 @@ function renderWlTabs() {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const idx = parseInt(btn.dataset.delidx);
-      delete wlCache[idx];
       const s = getWlStore();
-      s.lists.splice(idx, 1);
-      if (wlActiveIdx >= s.lists.length) wlActiveIdx = s.lists.length - 1;
-      saveWlStore(s);
-      renderWlTabs();
-      loadWatchlist(true);
+      const tabName = s.lists[idx]?.name || "this tab";
+      showWlDeleteConfirm(tabName, () => {
+        delete wlCache[idx];
+        const s2 = getWlStore();
+        s2.lists.splice(idx, 1);
+        if (wlActiveIdx >= s2.lists.length) wlActiveIdx = s2.lists.length - 1;
+        saveWlStore(s2);
+        renderWlTabs();
+        loadWatchlist(true);
+      });
     });
   });
 
