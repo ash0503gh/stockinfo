@@ -13,7 +13,10 @@ from pydantic import BaseModel
 from typing import Optional
 import pandas as pd
 from typesafe_sdk import AsyncTypeSafeClient, Choice, Noul, Score
-from jugaad_data.nse import NSELive
+try:
+    from jugaad_data.nse import NSELive
+except Exception:
+    NSELive = None
 
 app = FastAPI(title="StockDash")
 
@@ -23,6 +26,8 @@ _nse_live = None
 
 def _get_nse_live():
     global _nse_live
+    if NSELive is None:
+        return None
     if _nse_live is None:
         _nse_live = NSELive()
     return _nse_live
@@ -34,6 +39,8 @@ def _nse_quote(symbol: str) -> dict | None:
     nse_symbol = symbol.replace(".NS", "")
     try:
         nse = _get_nse_live()
+        if nse is None:
+            return None
         data = nse.stock_quote(nse_symbol)
         ti = data.get("tradeInfo", {})
         md = data.get("metaData", {})
@@ -83,7 +90,10 @@ async def search_stocks(q: str = Query(..., min_length=1)):
         except Exception:
             return {"quotes": []}
 
-    data = await asyncio.to_thread(_search)
+    try:
+        data = await asyncio.wait_for(asyncio.to_thread(_search), timeout=10)
+    except asyncio.TimeoutError:
+        data = {"quotes": []}
     results = []
     for q_item in data.get("quotes", []):
         excl = q_item.get("exchange", "")
@@ -149,7 +159,11 @@ async def get_chart(ticker: str, interval: str = "1d", range: str = "1y"):
         return hist, currency, daily, high_52, low_52, live_price
 
     try:
-        hist, currency, daily, high_52, low_52, live_price = await asyncio.to_thread(_get_history)
+        hist, currency, daily, high_52, low_52, live_price = await asyncio.wait_for(
+            asyncio.to_thread(_get_history), timeout=45
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, f"Request timed out fetching {ticker}")
     except Exception as e:
         raise HTTPException(502, f"Failed to fetch chart: {str(e)}")
 
@@ -357,7 +371,11 @@ def compute_stage_data(ticker: str):
 @app.get("/api/stage/{ticker}")
 async def get_stage(ticker: str):
     try:
-        data = await asyncio.to_thread(compute_stage_data, ticker)
+        data = await asyncio.wait_for(
+            asyncio.to_thread(compute_stage_data, ticker), timeout=45
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, f"Request timed out computing stage for {ticker}")
     except HTTPException:
         raise
     except Exception as e:
@@ -372,7 +390,7 @@ async def fetch_yahoo_news(ticker: str):
         return yf.Ticker(ticker).news
 
     try:
-        news_items = await asyncio.to_thread(_get_news)
+        news_items = await asyncio.wait_for(asyncio.to_thread(_get_news), timeout=15)
         cutoff_ts = (datetime.utcnow() - timedelta(days=90)).timestamp()
 
         parsed = []
@@ -841,7 +859,9 @@ async def get_fundamentals(ticker: str):
         return result
 
     try:
-        data = await asyncio.to_thread(_fetch)
+        data = await asyncio.wait_for(asyncio.to_thread(_fetch), timeout=30)
+    except asyncio.TimeoutError:
+        raise HTTPException(504, "Request timed out fetching fundamentals")
     except Exception as e:
         raise HTTPException(502, f"Failed to fetch fundamentals: {str(e)}")
     return data
@@ -948,8 +968,10 @@ async def analyze_watchlist(req: WatchlistRequest):
     # Fetch basic data for all tickers in parallel
     async def _get_summary(t):
         try:
-            return await asyncio.to_thread(_fetch_ticker_summary, t)
-        except Exception:
+            return await asyncio.wait_for(
+                asyncio.to_thread(_fetch_ticker_summary, t), timeout=30
+            )
+        except (asyncio.TimeoutError, Exception):
             return None
 
     summaries = await asyncio.gather(*[_get_summary(t) for t in tickers])
