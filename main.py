@@ -13,8 +13,40 @@ from pydantic import BaseModel
 from typing import Optional
 import pandas as pd
 from typesafe_sdk import AsyncTypeSafeClient, Choice, Noul, Score
+from jugaad_data.nse import NSELive
 
 app = FastAPI(title="StockDash")
+
+# ── NSE India live price helper ──────────────────────────────────────
+
+_nse_live = None
+
+def _get_nse_live():
+    global _nse_live
+    if _nse_live is None:
+        _nse_live = NSELive()
+    return _nse_live
+
+def _nse_quote(symbol: str) -> dict | None:
+    """Fetch live quote from NSE India for a .NS ticker. Returns dict with
+    lastPrice, previousClose, or None on failure."""
+    nse_symbol = symbol.replace(".NS", "")
+    try:
+        nse = _get_nse_live()
+        data = nse.stock_quote(nse_symbol)
+        ti = data.get("tradeInfo", {})
+        md = data.get("metaData", {})
+        last_price = ti.get("lastPrice") or md.get("lastPrice")
+        prev_close = md.get("previousClose")
+        if last_price and prev_close:
+            return {
+                "lastPrice": round(float(last_price), 2),
+                "previousClose": round(float(prev_close), 2),
+            }
+    except Exception:
+        global _nse_live
+        _nse_live = None
+    return None
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-3.8-flash"
@@ -95,14 +127,19 @@ async def get_chart(ticker: str, interval: str = "1d", range: str = "1y"):
         except Exception:
             daily = None
 
-        # Live/delayed price from fast_info (most current during market hours)
+        # Live price: prefer NSE India API for .NS tickers, else Yahoo fast_info
         live_price = None
-        try:
-            lp = tkr.fast_info.get("lastPrice")
-            if lp and float(lp) > 0:
-                live_price = round(float(lp), 2)
-        except Exception:
-            pass
+        if ticker.endswith(".NS"):
+            nse_data = _nse_quote(ticker)
+            if nse_data:
+                live_price = nse_data["lastPrice"]
+        if live_price is None:
+            try:
+                lp = tkr.fast_info.get("lastPrice")
+                if lp and float(lp) > 0:
+                    live_price = round(float(lp), 2)
+            except Exception:
+                pass
 
         return hist, currency, daily, high_52, low_52, live_price
 
@@ -822,21 +859,29 @@ def _fetch_ticker_summary(ticker: str) -> dict:
         currency = "USD"
     closes = hist["Close"].tolist()
     last_close = round(closes[-1], 2)
-    # Prefer live/delayed price, fallback to daily close, then weekly
-    try:
-        lp = tkr.fast_info.get("lastPrice")
-        if lp and float(lp) > 0:
-            last_close = round(float(lp), 2)
-    except Exception:
+    # Prefer NSE India API for .NS tickers, else Yahoo fast_info, then daily close
+    nse_price = None
+    if ticker.endswith(".NS"):
+        nse_data = _nse_quote(ticker)
+        if nse_data:
+            nse_price = nse_data["lastPrice"]
+    if nse_price:
+        last_close = nse_price
+    else:
         try:
-            daily = tkr.history(period="5d", interval="1d")
-            if not daily.empty:
-                daily = daily.dropna(subset=["Close"])
-                daily = daily[daily["Close"] > 0]
-                if not daily.empty:
-                    last_close = round(float(daily["Close"].iloc[-1]), 2)
+            lp = tkr.fast_info.get("lastPrice")
+            if lp and float(lp) > 0:
+                last_close = round(float(lp), 2)
         except Exception:
-            pass
+            try:
+                daily = tkr.history(period="5d", interval="1d")
+                if not daily.empty:
+                    daily = daily.dropna(subset=["Close"])
+                    daily = daily[daily["Close"] > 0]
+                    if not daily.empty:
+                        last_close = round(float(daily["Close"].iloc[-1]), 2)
+            except Exception:
+                pass
     close_series = pd.Series(closes)
     ma_series = close_series.rolling(window=30).mean()
     ema_series = close_series.ewm(span=52, adjust=False).mean()
