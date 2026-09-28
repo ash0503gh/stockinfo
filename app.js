@@ -1312,6 +1312,18 @@ function switchToDashboard(ticker) {
   loadTicker(ticker);
 }
 
+function showToast(msg) {
+  const existing = document.getElementById("sdToast");
+  if (existing) existing.remove();
+  const t = document.createElement("div");
+  t.id = "sdToast";
+  t.textContent = msg;
+  t.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface,#1a1d23);border:1px solid var(--border,#2a2d35);color:var(--text,#e0e0e0);padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;opacity:0;transition:opacity 0.3s;";
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.style.opacity = "1");
+  setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 300); }, 2500);
+}
+
 // ── Watchlist Logic ──────────────────────────────────────────────────
 const WL_KEY = "stockdash_watchlist";
 const WL_V2_KEY = "stockdash_wl_v2";
@@ -1355,7 +1367,7 @@ function addToWatchlist(ticker) {
   const store = getWlStore();
   const list = store.lists[wlActiveIdx];
   if (list.tickers.includes(t)) return;
-  if (list.tickers.length >= WL_MAX_PER_LIST) return;
+  if (list.tickers.length >= WL_MAX_PER_LIST) { showToast(`Limit reached: ${WL_MAX_PER_LIST} stocks per list`); return; }
   list.tickers.push(t);
   saveWlStore(store);
   updateWatchlistStar();
