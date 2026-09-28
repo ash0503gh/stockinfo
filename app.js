@@ -523,10 +523,21 @@ function attachHover(canvas, cfg) {
     const offsetLeft = canvas.offsetLeft;
     const offsetTop = canvas.offsetTop;
 
-    tooltip.style.display = "block";
-    tooltip.style.left = (offsetLeft + Math.min(Math.max(px, 40), canvas.clientWidth - 40)) + "px";
-    tooltip.style.top = (offsetTop + 2) + "px";
     tooltip.textContent = cfg.tooltipFormat ? cfg.tooltipFormat(v, idx) : String(v);
+    tooltip.style.display = "block";
+    // Measure on one line, wrap only if wider than the chart, then center on the point without leaving the chart.
+    tooltip.style.whiteSpace = "nowrap";
+    tooltip.style.width = "";
+    tooltip.style.left = "0px";
+    const wrapW = canvas.parentElement.clientWidth;
+    let tipW = tooltip.offsetWidth;
+    if (tipW > wrapW) {
+      tooltip.style.whiteSpace = "normal";
+      tooltip.style.width = wrapW + "px";
+      tipW = wrapW;
+    }
+    tooltip.style.left = Math.max(0, Math.min(offsetLeft + px - tipW / 2, wrapW - tipW)) + "px";
+    tooltip.style.top = (offsetTop + 2) + "px";
 
     drawCrosshair(canvas, cfg, px, py);
   };
