@@ -711,6 +711,7 @@ async function loadTicker(ticker) {
     state.currency = cachedMeta.currency;
     state.news = cachedMeta.news;
     state.stageData = cachedMeta.stageData;
+    state.fundamentals = cachedMeta.fundamentals || null;
     state.analysis = cachedMeta.analysis;
     state.aiSource = cachedMeta.aiSource;
 
@@ -720,6 +721,9 @@ async function loadTicker(ticker) {
   }
 
   try {
+    state.fundamentals = null;
+    // Fundamentals load in parallel but never block the chart; the verdict waits at most 8s for them.
+    const fundP = fetch(`/api/fundamentals/${ticker}`).then((r) => r.ok ? r.json() : null).catch(() => null);
     const [cRes, sRes, nRes] = await Promise.all([
       fetch(`/api/chart/${ticker}?range=1y&interval=1d`),
       fetch(`/api/stage/${ticker}`),
@@ -749,6 +753,9 @@ async function loadTicker(ticker) {
     if (!state.history.length) throw new Error("No price history available");
 
     renderAllUI();
+    state.fundamentals = await Promise.race([fundP, new Promise((r) => setTimeout(() => r(null), 8000))]);
+    if (state.ticker !== ticker) return;
+    renderFundamentals();
     await runAiAnalysis();
 
     // Cache full ticker metadata
@@ -757,6 +764,7 @@ async function loadTicker(ticker) {
       currency: state.currency,
       news: state.news,
       stageData: state.stageData,
+      fundamentals: state.fundamentals,
       analysis: state.analysis,
       aiSource: state.aiSource,
       timestamp: Date.now()
@@ -777,6 +785,7 @@ function renderAllUI() {
   renderStats();
   renderStageCard();
   renderKeyLevels();
+  renderFundamentals();
   initTimeframeButtons();
   renderPriceChart();
   renderVolumeChart();
@@ -995,6 +1004,14 @@ function fmtLongDate(iso) {
   return new Date(y, m - 1, d).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
+// "2026-06-30" → "Jun 26" (short) or "Jun 2026" (long)
+function fmtQuarter(iso, long = false) {
+  const [y, m] = String(iso).split("-").map(Number);
+  if (!y || !m) return iso;
+  const mon = new Date(y, m - 1, 1).toLocaleString("en-US", { month: "short" });
+  return long ? `${mon} ${y}` : `${mon} ${String(y).slice(-2)}`;
+}
+
 function renderStats() {
   const stats = computeStats();
   state._stats = stats;
@@ -1151,6 +1168,7 @@ async function runAiAnalysis() {
   if (el("verdictCard")) el("verdictCard").innerHTML = "";
   const stats = state._stats;
   const s = state.stageData;
+  const f = state.fundamentals || {};
 
   let analysis = null;
   let source = "simulated";
@@ -1174,6 +1192,14 @@ async function runAiAnalysis() {
         emaAgreement: s ? s.emaAgreement : undefined,
         computedSignal: s ? s.signal : undefined,
         computedConfidence: s ? s.confidence : undefined,
+        pe: f.trailingPE ?? undefined,
+        pb: f.priceToBook ?? undefined,
+        dividendYield: f.dividendYield ?? undefined,
+        epsTtm: f.trailingEps ?? undefined,
+        latestQuarter: f.latestQuarterEnd ? fmtQuarter(f.latestQuarterEnd, true) : undefined,
+        revenueYoY: f.revenueYoY ?? undefined,
+        profitYoY: f.profitYoY ?? undefined,
+        resultsStale: f.resultsStale ?? undefined,
       }),
     });
     if (res.ok) {
@@ -1245,6 +1271,90 @@ function renderVerdict() {
       ${alertHtml}
       <div class="ai-source-line"><span class="ai-source-dot"></span>AI-powered analysis · Not financial advice</div>
     </article>`;
+}
+
+// ── Fundamentals (valuation row + quarterly results ledger) ───────────
+function fmtMarketCap(v, currency) {
+  if (v == null) return null;
+  if (currency === "INR") {
+    const cr = v / 1e7;
+    return cr >= 1e5
+      ? { num: `₹${(cr / 1e5).toFixed(2)}`, unit: "lakh crore" }
+      : { num: `₹${Math.round(cr).toLocaleString("en-IN")}`, unit: "crore" };
+  }
+  const sym = currSym(currency);
+  if (v >= 1e12) return { num: `${sym}${(v / 1e12).toFixed(2)}`, unit: "trillion" };
+  if (v >= 1e9) return { num: `${sym}${(v / 1e9).toFixed(1)}`, unit: "billion" };
+  return { num: `${sym}${(v / 1e6).toFixed(1)}`, unit: "million" };
+}
+
+function fmtDayMonYear(iso) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return `${d} ${new Date(y, m - 1, 1).toLocaleString("en-US", { month: "short" })} ${y}`;
+}
+
+const signedPct = (v) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}%`;
+
+function renderFundamentals() {
+  const card = el("fundCard");
+  const f = state.fundamentals;
+  const quarters = (f && f.quarters) || [];
+  const hasVal = !!f && ["marketCap", "trailingPE", "priceToBook", "dividendYield", "trailingEps"].some((k) => f[k] != null);
+  const latestIdx = quarters.findIndex((q) => !q.missing);
+  if (!hasVal && latestIdx < 0) { card.style.display = "none"; return; }
+  card.style.display = "block";
+  const sym = currSym(state.currency);
+  const dash = "—";
+
+  let valHtml = "";
+  if (hasVal) {
+    const mc = fmtMarketCap(f.marketCap, state.currency);
+    const cell = (label, v) => `<div><div class="stat-label">${label}</div><div class="v">${v}</div></div>`;
+    valHtml = `
+      <div class="fund-mcap"><span class="stat-label">Market cap</span><span class="v">${mc ? `${mc.num}<small>${mc.unit}</small>` : dash}</span></div>
+      <div class="fund-vals">
+        ${cell("P/E", f.trailingPE != null ? fmt(f.trailingPE, 1) : dash)}
+        ${cell("P/B", f.priceToBook != null ? fmt(f.priceToBook, 2) : dash)}
+        ${cell("Div. yield", f.dividendYield != null ? `${fmt(f.dividendYield, 2)}%` : dash)}
+        ${cell("EPS · TTM", f.trailingEps != null ? `${sym}${fmt(f.trailingEps)}` : dash)}
+      </div>`;
+  }
+  el("fundValuation").innerHTML = valHtml;
+
+  let qHtml = "";
+  if (latestIdx >= 0) {
+    const inr = state.currency === "INR";
+    const money = (v) => v == null ? dash : Math.round(v / (inr ? 1e7 : 1e6)).toLocaleString(inr ? "en-IN" : "en-US");
+    const latest = quarters[latestIdx];
+    const age = f.resultsAgeMonths ? `${f.resultsAgeMonths} months old` : "over 5 months old";
+    const warn = f.resultsStale ? `
+      <div class="fund-warn"><span>⚠</span><span>These are the latest results on file, but they are ${age}. The data source hasn't updated ${escapeHtml(state.stockName || state.ticker)}, so newer quarters may be missing.</span></div>` : "";
+    const rows = quarters.map((q, i) => `
+      <tr class="${i === latestIdx ? "latest" : ""}">
+        <td>${fmtQuarter(q.end)}</td>
+        <td class="${q.revenue == null ? "na" : ""}">${money(q.revenue)}</td>
+        <td class="${q.netProfit == null ? "na" : ""}">${money(q.netProfit)}</td>
+        <td class="${q.eps == null ? "na" : ""}">${q.eps == null ? dash : fmt(q.eps)}</td>
+      </tr>`).join("");
+    const yearAgo = quarters[latestIdx + 4];
+    const yoyParts = [];
+    if (f.revenueYoY != null) yoyParts.push(`revenue <b class="${f.revenueYoY >= 0 ? "pos" : "neg"}">${signedPct(f.revenueYoY)}</b>`);
+    if (f.profitYoY != null) yoyParts.push(`net profit <b class="${f.profitYoY >= 0 ? "pos" : "neg"}">${signedPct(f.profitYoY)}</b>`);
+    const yoy = yearAgo && yoyParts.length ? `<div class="fund-yoy">YoY vs ${fmtQuarter(yearAgo.end)}: ${yoyParts.join(" · ")}</div>` : "";
+    const missing = quarters.filter((q) => q.missing).map((q) => fmtQuarter(q.end));
+    const note = missing.length ? `<div class="fund-note">${missing.join(", ")} not reported by the data source.</div>` : "";
+    qHtml = `
+      <div class="fund-results-head"><b>Quarterly results</b><span>${inr ? "₹ crore" : `${sym} million`}</span></div>
+      <div class="fund-asof">As of quarter ended ${fmtDayMonYear(latest.end)}</div>
+      ${warn}
+      <table class="fund-table">
+        <thead><tr><th>Quarter</th><th>Revenue</th><th>Net profit</th><th>EPS ${sym}</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${yoy}${note}`;
+  }
+  el("fundResults").innerHTML = qHtml;
 }
 
 function renderFactors() {

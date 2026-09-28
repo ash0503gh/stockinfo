@@ -508,6 +508,63 @@ button { font-family: inherit; }
 }
 .ai-source-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brass); }
 
+/* ── Fundamentals ───────────────────────────────────────────────────── */
+.fund-mcap {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 0 9px;
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--rule);
+}
+.fund-mcap .v { font: 400 24px var(--serif); font-variant-numeric: lining-nums tabular-nums; white-space: nowrap; }
+.fund-mcap .v small { font: 400 12.5px var(--sans); color: var(--mute); margin-left: 4px; }
+.fund-vals { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--rule); }
+.fund-vals > div { padding: 9px 0 10px 14px; border-left: 1px solid var(--rule); min-width: 0; }
+.fund-vals > div:first-child { border-left: 0; padding-left: 0; }
+.fund-vals .v { font: 400 22px/1.2 var(--serif); margin-top: 3px; font-variant-numeric: lining-nums tabular-nums; white-space: nowrap; }
+.fund-results-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 26px; }
+.fund-results-head b { font-size: 10.5px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink); }
+.fund-results-head span { font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mute); }
+.fund-asof { font: italic 400 14px var(--serif); color: var(--ink-2); margin-top: 3px; }
+.fund-warn {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 0 8px 12px;
+  border-left: 2px solid var(--oxblood);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--oxblood);
+}
+.fund-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-variant-numeric: lining-nums tabular-nums; }
+.fund-table th {
+  padding: 0 0 7px;
+  text-align: right;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+  border-bottom: 1px solid var(--ink);
+}
+.fund-table th:first-child, .fund-table td:first-child { text-align: left; }
+.fund-table td {
+  padding: 9px 0 8px;
+  text-align: right;
+  font-size: 14px;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--rule-soft);
+  white-space: nowrap;
+}
+.fund-table td:first-child { font: 500 15px var(--serif); color: var(--ink); }
+.fund-table tr.latest td { color: var(--ink); font-weight: 600; }
+.fund-table td.na { color: var(--faint); }
+.fund-yoy { font-size: 13px; color: var(--ink-2); margin-top: 10px; }
+.fund-yoy b { font-weight: 600; }
+.fund-note { font: italic 400 12.5px var(--serif); color: var(--mute); margin-top: 6px; }
+
 /* ── Market stage ───────────────────────────────────────────────────── */
 .stage-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .stage-badge { font: 500 24px/1.2 var(--serif); letter-spacing: -0.01em; color: var(--ink); }
@@ -859,6 +916,9 @@ footer {
   .verdict-stamp b { font-size: 18px; }
   .verdict-action { font-size: 17px; }
   .level-price { font-size: 26px; }
+  .fund-vals > div { padding-left: 10px; }
+  .fund-vals .v { font-size: 19px; }
+  .fund-table td { font-size: 13px; }
   .action-scenarios { grid-template-columns: 1fr; gap: 14px; }
   .timeframe-row { gap: 14px; }
   .wl-td-ticker a { max-width: 150px; font-size: 16px; }

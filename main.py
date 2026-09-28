@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import httpx
 import asyncio
 import email.utils
@@ -541,6 +542,32 @@ class AnalyzeRequest(BaseModel):
     emaAgreement: Optional[bool] = None
     computedSignal: Optional[str] = None
     computedConfidence: Optional[int] = None
+    pe: Optional[float] = None
+    pb: Optional[float] = None
+    dividendYield: Optional[float] = None
+    epsTtm: Optional[float] = None
+    latestQuarter: Optional[str] = None
+    revenueYoY: Optional[float] = None
+    profitYoY: Optional[float] = None
+    resultsStale: Optional[bool] = None
+
+
+def _fundamentals_context(req: AnalyzeRequest) -> str:
+    """Compact fundamentals lines for the Gemini prompt; empty when nothing is known."""
+    val = []
+    if req.pe is not None: val.append(f"P/E {req.pe:.1f}")
+    if req.pb is not None: val.append(f"P/B {req.pb:.2f}")
+    if req.dividendYield is not None: val.append(f"dividend yield {req.dividendYield:.2f}%")
+    if req.epsTtm is not None: val.append(f"EPS (trailing 12m) {req.epsTtm:.2f}")
+    lines = [f"- Valuation: {', '.join(val)}"] if val else []
+    if req.latestQuarter and (req.revenueYoY is not None or req.profitYoY is not None):
+        parts = []
+        if req.revenueYoY is not None: parts.append(f"revenue {req.revenueYoY:+.1f}%")
+        if req.profitYoY is not None: parts.append(f"net profit {req.profitYoY:+.1f}%")
+        lines.append(f"- Latest quarter ({req.latestQuarter}) vs a year earlier: {', '.join(parts)}")
+    if req.resultsStale:
+        lines.append("- Note: the latest quarterly results on file are over 5 months old and may be outdated.")
+    return ("\nFundamentals (Yahoo Finance):\n" + "\n".join(lines)) if lines else ""
 
 
 async def _jev_analyze(req: AnalyzeRequest) -> dict:
@@ -784,7 +811,7 @@ Current data:
 - Price: {req.currency} {req.currentPrice}
 - 1-Year Return: {req.oneYearReturn if req.oneYearReturn is not None else 'N/A'}%
 - Monthly Change: {req.monthlyChange if req.monthlyChange is not None else 'N/A'}%
-- Avg Monthly Volume: {req.avgVolume if req.avgVolume is not None else 'N/A'}{stage_context}
+- Avg Monthly Volume: {req.avgVolume if req.avgVolume is not None else 'N/A'}{_fundamentals_context(req)}{stage_context}
 Recent headlines:
 {news_block}
 
@@ -848,11 +875,63 @@ Include 5-7 factors."""
 
 # ── Fundamentals ──────────────────────────────────────────────────────
 
+FUND_TTL_SECONDS = 24 * 3600  # fundamentals change quarterly; also keeps Yahoo call volume (and 401 risk) low
+STALE_RESULTS_DAYS = 152       # ~5 months: a newer quarter should have been reported by then
+_fund_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _stmt_row(df, *names):
+    for n in names:
+        if n in df.index:
+            return df.loc[n]
+    return None
+
+
+def _quarter_slots(tkr, want: int = 5) -> list[dict]:
+    """Newest-first quarterly results. Quarters the source skipped are kept as
+    placeholders (missing=True) so gaps stay visible instead of silently shifting columns."""
+    q = tkr.quarterly_income_stmt
+    if q is None or q.empty:
+        return []
+    rev = _stmt_row(q, "Total Revenue", "Operating Revenue")
+    pat = _stmt_row(q, "Net Income", "Net Income Common Stockholders")
+    eps = _stmt_row(q, "Diluted EPS", "Basic EPS")
+
+    def val(series, d):
+        if series is None:
+            return None
+        v = series.get(d)
+        return None if v is None or pd.isna(v) else round(float(v), 2)
+
+    slots, prev = [], None
+    for d in sorted(q.columns, reverse=True):
+        if prev is not None:
+            gap_months = (prev.year - d.year) * 12 + (prev.month - d.month)
+            for k in range(1, round(gap_months / 3)):
+                end = prev - pd.DateOffset(months=3 * k)
+                slots.append({"end": end.strftime("%Y-%m-%d"), "revenue": None, "netProfit": None, "eps": None, "missing": True})
+        row = {"end": d.strftime("%Y-%m-%d"), "revenue": val(rev, d), "netProfit": val(pat, d), "eps": val(eps, d)}
+        row["missing"] = row["revenue"] is None and row["netProfit"] is None and row["eps"] is None
+        slots.append(row)
+        prev = d
+    return slots[:want]
+
+
+def _pct_change(new, old):
+    if new is None or old is None or old <= 0:
+        return None
+    return round((new - old) / old * 100, 1)
+
+
 @app.get("/api/fundamentals/{ticker}")
 async def get_fundamentals(ticker: str):
+    cached = _fund_cache.get(ticker)
+    if cached and time.time() - cached[0] < FUND_TTL_SECONDS:
+        return cached[1]
+
     def _fetch():
         tkr = yf.Ticker(ticker)
-        keys = ["marketCap", "trailingPE", "forwardPE", "dividendYield",
+        keys = ["marketCap", "trailingPE", "forwardPE", "priceToBook", "trailingEps", "dividendYield",
                 "revenueGrowth", "profitMargins", "sector", "industry"]
         result = {k: None for k in keys}
         try:
@@ -869,6 +948,26 @@ async def get_fundamentals(ticker: str):
                 result["marketCap"] = tkr.fast_info.get("marketCap")
             except Exception:
                 pass
+
+        try:
+            quarters = _quarter_slots(tkr)
+        except Exception:
+            quarters = []
+        result["quarters"] = quarters
+        latest = next((s for s in quarters if not s["missing"]), None)
+        result["latestQuarterEnd"] = latest["end"] if latest else None
+        result["resultsStale"] = None
+        result["revenueYoY"] = result["profitYoY"] = result["epsYoY"] = None
+        if latest:
+            age_days = (datetime.now().date() - datetime.strptime(latest["end"], "%Y-%m-%d").date()).days
+            result["resultsStale"] = age_days > STALE_RESULTS_DAYS
+            result["resultsAgeMonths"] = round(age_days / 30.4)
+            i = quarters.index(latest)
+            if i + 4 < len(quarters):
+                year_ago = quarters[i + 4]
+                result["revenueYoY"] = _pct_change(latest["revenue"], year_ago["revenue"])
+                result["profitYoY"] = _pct_change(latest["netProfit"], year_ago["netProfit"])
+                result["epsYoY"] = _pct_change(latest["eps"], year_ago["eps"])
         return result
 
     try:
@@ -877,6 +976,8 @@ async def get_fundamentals(ticker: str):
         raise HTTPException(504, "Request timed out fetching fundamentals")
     except Exception as e:
         raise HTTPException(502, f"Failed to fetch fundamentals: {str(e)}")
+    if data.get("trailingPE") is not None or data.get("quarters"):
+        _fund_cache[ticker] = (time.time(), data)
     return data
 
 
