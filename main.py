@@ -109,6 +109,17 @@ async def search_stocks(q: str = Query(..., min_length=1)):
 
 # ── Chart ──────────────────────────────────────────────────────────────
 
+def _identity(tkr, ticker: str) -> tuple[str, str]:
+    """Company name + exchange label from the metadata of the last history() call (no extra request)."""
+    try:
+        meta = tkr.history_metadata or {}
+    except Exception:
+        meta = {}
+    name = meta.get("longName") or meta.get("shortName") or ticker
+    exch = meta.get("exchangeName") or ""
+    return name, EXCHANGE_LABELS.get(exch, exch)
+
+
 @app.get("/api/chart/{ticker}")
 async def get_chart(ticker: str, interval: str = "1d", range: str = "1y"):
     def _get_history():
@@ -132,6 +143,7 @@ async def get_chart(ticker: str, interval: str = "1d", range: str = "1y"):
         if not hist.empty:
             hist = hist.dropna(subset=["Close"])
             hist = hist[hist["Close"] > 0]
+        name, exchange = _identity(tkr, ticker)
 
         # Recent daily probe to ensure we have the exact latest trading close
         try:
@@ -156,10 +168,10 @@ async def get_chart(ticker: str, interval: str = "1d", range: str = "1y"):
             except Exception:
                 pass
 
-        return hist, currency, daily, high_52, low_52, live_price
+        return hist, currency, daily, high_52, low_52, live_price, name, exchange
 
     try:
-        hist, currency, daily, high_52, low_52, live_price = await asyncio.wait_for(
+        hist, currency, daily, high_52, low_52, live_price, name, exchange = await asyncio.wait_for(
             asyncio.to_thread(_get_history), timeout=45
         )
     except asyncio.TimeoutError:
@@ -216,7 +228,8 @@ async def get_chart(ticker: str, interval: str = "1d", range: str = "1y"):
 
     return {
         "ticker": ticker,
-        "name": ticker,
+        "name": name,
+        "exchange": exchange,
         "currency": currency,
         "history": history,
         "lastClose": last_close,
@@ -878,6 +891,7 @@ def _fetch_ticker_summary(ticker: str) -> dict:
         hist = hist[hist["Close"] > 0]
     if hist.empty or len(hist) < 35:
         return None
+    name, exchange = _identity(tkr, ticker)
     try:
         currency = tkr.fast_info.get("currency", "USD")
     except Exception:
@@ -938,6 +952,8 @@ def _fetch_ticker_summary(ticker: str) -> dict:
     ema40_pct = round((last_close - ema40) / ema40 * 100, 2) if ema40 else 0.0
     return {
         "ticker": ticker,
+        "name": name,
+        "exchange": exchange,
         "lastClose": last_close,
         "currency": currency,
         "yrReturn": yr_return,
@@ -990,14 +1006,17 @@ async def health():
 
 # ── Serve the frontend ───────────────────────────────────────────────
 
+# "no-cache" = revalidate every load (cheap 304 via ETag), so a deploy never pairs new HTML with stale CSS/JS.
+NO_CACHE = {"Cache-Control": "no-cache"}
+
 @app.get("/")
 async def serve_index():
-    return FileResponse("index.html")
+    return FileResponse("index.html", headers=NO_CACHE)
 
 @app.get("/style.css")
 async def serve_css():
-    return FileResponse("style.css", media_type="text/css")
+    return FileResponse("style.css", media_type="text/css", headers=NO_CACHE)
 
 @app.get("/app.js")
 async def serve_js():
-    return FileResponse("app.js", media_type="application/javascript")
+    return FileResponse("app.js", media_type="application/javascript", headers=NO_CACHE)

@@ -3,42 +3,41 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#F5F0E6" />
   <title>StockDash</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div id="app">
     <div class="container">
-      <!-- Header -->
-      <header>
-        <div class="brand">
-          <div class="logo-mark">S</div>
-          <div>
-            <h1>StockDash</h1>
-            <span class="version">v4.0</span>
-          </div>
+      <!-- Masthead -->
+      <header class="masthead">
+        <div class="mast-row">
+          <h1 class="mast-title">Stock<i>Dash</i></h1>
+          <span class="mast-date" id="mastDate"></span>
         </div>
+        <div class="mast-rule"></div>
         <div class="search-wrap" id="searchWrap">
           <div class="search-input-wrap">
-            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7.5"/><line x1="20.5" y1="20.5" x2="16.3" y2="16.3"/>
             </svg>
-            <input type="text" id="searchInput" placeholder="Search Stocks (India & US)…" autocomplete="off" />
+            <input type="text" id="searchInput" placeholder="Search a company or ticker" autocomplete="off" />
             <span class="staged-dot" id="stagedDot"></span>
             <div class="search-dropdown" id="searchDropdown"></div>
           </div>
-          <button id="applyBtn" disabled>Analyze</button>
+          <button id="applyBtn" disabled>Analyze →</button>
         </div>
       </header>
 
       <!-- Tab Navigation -->
-      <div class="tab-bar">
+      <nav class="tab-bar">
         <button class="tab-btn active" data-tab="dashboardView">Dashboard</button>
         <button class="tab-btn" data-tab="watchlistView">Watchlist</button>
-      </div>
+      </nav>
 
       <!-- Dashboard View -->
       <div id="dashboardView">
@@ -46,13 +45,12 @@
       <!-- Ticker identity -->
       <div class="ticker-bar" id="tickerBar" style="display:none;">
         <div class="ticker-identity">
-          <span class="ticker-symbol" id="tickerSymbol"></span>
-          <span class="ticker-name" id="tickerName"></span>
-          <span class="ticker-currency" id="tickerCurrency"></span>
+          <div class="ticker-kicker"><span id="tickerExchange"></span><span class="ticker-symbol" id="tickerSymbol"></span><span class="ticker-currency" id="tickerCurrency"></span></div>
+          <h2 class="ticker-name" id="tickerName"></h2>
         </div>
         <div class="ticker-bar-right">
           <button class="watchlist-star" id="watchlistStar" title="Add to watchlist">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
             </svg>
           </button>
@@ -67,60 +65,72 @@
       <div id="errorBox" class="error-box" style="display:none;"></div>
 
       <div id="content" style="display:none;">
-        <!-- Stat row -->
-        <div class="stat-row" id="statRow"></div>
-
-        <!-- 52-Week Range Bar (Just above AI Verdict) -->
-        <div class="card range-bar-card" id="rangeBarCard" style="display:none;">
-          <div class="range-bar-top">
-            <span class="range-bar-title">1-Year Price Range</span>
-            <span class="range-bar-badge" id="rangeBarBadge">—</span>
+        <!-- Price -->
+        <div class="price-hero">
+          <div class="price-row">
+            <span class="price-big" id="heroPrice"></span>
+            <span class="price-change" id="heroChange"></span>
           </div>
-          <div class="range-slider-wrap">
-            <div class="range-col">
-              <span class="range-lbl">1-Year Low</span>
-              <span class="range-num" id="range52Low">—</span>
-            </div>
-            <div class="range-track-box">
-              <div class="range-track">
-                <div class="range-fill" id="rangeFill"></div>
-                <div class="range-pin" id="rangePin"></div>
-              </div>
-              <div class="range-current-lbl" id="rangeCurrentLbl">Current: —</div>
-            </div>
-            <div class="range-col text-right">
-              <span class="range-lbl">1-Year High</span>
-              <span class="range-num" id="range52High">—</span>
-            </div>
-          </div>
+          <div class="price-date" id="heroDate"></div>
         </div>
 
+        <!-- Price chart -->
+        <section class="card chart-card price-chart-card">
+          <canvas id="priceChart" height="230"></canvas>
+          <div class="chart-foot">
+            <div class="timeframe-row">
+              <button class="tf-btn" data-range="6mo" data-interval="1d">6M</button>
+              <button class="tf-btn active" data-range="1y" data-interval="1d">1Y</button>
+              <button class="tf-btn" data-range="3y" data-interval="1wk">3Y</button>
+              <button class="tf-btn" data-range="5y" data-interval="1wk">5Y</button>
+              <button class="tf-btn" data-range="10y" data-interval="1wk">10Y</button>
+            </div>
+            <span class="price-change-badge" id="priceChangeBadge"></span>
+          </div>
+        </section>
+
+        <!-- Stat ledger -->
+        <div class="stat-row" id="statRow"></div>
+
+        <!-- 1-Year range ruler -->
+        <section class="card range-bar-card" id="rangeBarCard" style="display:none;">
+          <div class="range-ruler">
+            <div class="range-current-lbl" id="rangeCurrentLbl"></div>
+            <div class="range-track"><div class="range-fill" id="rangeFill"></div><div class="range-pin" id="rangePin"></div></div>
+          </div>
+          <div class="range-ends">
+            <span>Year low <b id="range52Low">—</b></span>
+            <span>Year high <b id="range52High">—</b></span>
+          </div>
+          <p class="range-caption" id="rangeBarBadge"></p>
+        </section>
+
         <!-- AI Verdict -->
+        <div class="section-label">The Verdict</div>
         <div id="aiLoading" class="loading-pulse" style="display:none;">
           <div class="spinner"></div>
           <span>Running AI research analysis…</span>
         </div>
         <div id="verdictCard"></div>
 
-        <!-- Market Stage Cycle Card (Weinstein Analysis) -->
-        <div class="card stage-card" id="stageCard" style="display:none;">
-          <div class="card-label-row">
-            <div style="display:flex;align-items:center;gap:10px;">
-              <span class="card-label" style="margin-bottom:0;">Market Stage Cycle</span>
-              <span class="stage-badge" id="stageBadge">Stage —</span>
-            </div>
-            <div class="stage-stepper" id="stageStepper">
-              <span class="step-pill" data-step="1">1. Bottoming</span>
-              <span class="step-arrow">→</span>
-              <span class="step-pill" data-step="2">2. Uptrend</span>
-              <span class="step-arrow">→</span>
-              <span class="step-pill" data-step="3">3. Peak</span>
-              <span class="step-arrow">→</span>
-              <span class="step-pill" data-step="4">4. Downtrend</span>
-            </div>
+        <!-- Market Stage Cycle (Weinstein) -->
+        <section class="card stage-card" id="stageCard" style="display:none;">
+          <div class="section-label">Market Stage</div>
+          <div class="stage-head">
+            <h3 class="stage-badge" id="stageBadge">Stage —</h3>
+            <span class="stage-pvm" id="stagePvm"></span>
           </div>
-          <div class="stage-desc" id="stageDesc"></div>
-          <div class="stage-ema-note" id="stageEmaNote"></div>
+          <div class="stage-stepper" id="stageStepper">
+            <span class="step-pill" data-step="1">I Bottoming</span>
+            <span class="step-arrow">·</span>
+            <span class="step-pill" data-step="2">II Uptrend</span>
+            <span class="step-arrow">·</span>
+            <span class="step-pill" data-step="3">III Peak</span>
+            <span class="step-arrow">·</span>
+            <span class="step-pill" data-step="4">IV Downtrend</span>
+          </div>
+          <p class="stage-desc" id="stageDesc"></p>
+          <p class="stage-ema-note" id="stageEmaNote"></p>
           <canvas id="stageChart" height="200"></canvas>
           <div class="stage-legend">
             <span class="legend-fixed"><i class="legend-swatch legend-price"></i>Price</span>
@@ -133,86 +143,70 @@
               <i class="legend-swatch legend-ema"></i>52-week EMA
             </label>
           </div>
-        </div>
+        </section>
 
-        <!-- Key Levels & Action Plan -->
-        <div class="card levels-card" id="levelsCard" style="display:none;">
-          <div class="card-label-row">
-            <span class="card-label" style="margin-bottom:0;">Key Price Levels & Action Guide</span>
-            <span class="rr-badge" id="riskRewardBadge">R:R —</span>
-          </div>
+        <!-- Key Levels & Action Guide -->
+        <section class="card levels-card" id="levelsCard" style="display:none;">
+          <div class="section-label">Key Levels</div>
           <div class="levels-grid">
-            <div class="level-box support-box">
-              <div class="level-tag">🟢 Price Floor (Support)</div>
-              <div class="level-price" id="levelSupport">—</div>
-              <div class="level-sub" id="levelSupportDist">—</div>
-            </div>
             <div class="level-box resistance-box">
-              <div class="level-tag">🔴 Price Ceiling (Resistance)</div>
+              <div class="level-tag">Ceiling · resistance</div>
               <div class="level-price" id="levelResistance">—</div>
               <div class="level-sub" id="levelResistanceDist">—</div>
             </div>
+            <div class="level-box support-box">
+              <div class="level-tag">Floor · support</div>
+              <div class="level-price" id="levelSupport">—</div>
+              <div class="level-sub" id="levelSupportDist">—</div>
+            </div>
           </div>
+          <div class="rr-line" id="riskRewardBadge">Risk to reward —</div>
           <div class="action-scenarios" id="actionScenarios">
             <div class="scenario-item">
-              <span class="scenario-badge buy-badge">FOR BUYERS</span>
-              <span class="scenario-text" id="scenarioBuy">—</span>
+              <span class="scenario-badge buy-badge">For buyers</span>
+              <p class="scenario-text" id="scenarioBuy">—</p>
             </div>
             <div class="scenario-item">
-              <span class="scenario-badge hold-badge">FOR HOLDERS</span>
-              <span class="scenario-text" id="scenarioHold">—</span>
+              <span class="scenario-badge hold-badge">For holders</span>
+              <p class="scenario-text" id="scenarioHold">—</p>
             </div>
           </div>
-        </div>
+        </section>
 
-        <!-- Price + Volume charts -->
-        <div class="card chart-card">
-          <div class="card-label-row">
-            <div style="display:flex;align-items:center;gap:10px;">
-              <span class="card-label" style="margin-bottom:0;">Price History</span>
-              <span class="price-change-badge" id="priceChangeBadge"></span>
-            </div>
-            <div class="timeframe-row">
-              <button class="tf-btn" data-range="6mo" data-interval="1d">6M</button>
-              <button class="tf-btn active" data-range="1y" data-interval="1d">1Y</button>
-              <button class="tf-btn" data-range="3y" data-interval="1wk">3Y</button>
-              <button class="tf-btn" data-range="5y" data-interval="1wk">5Y</button>
-              <button class="tf-btn" data-range="10y" data-interval="1wk">10Y</button>
-            </div>
-          </div>
-          <canvas id="priceChart" height="220"></canvas>
-        </div>
-
-        <div class="card chart-card">
-          <div class="card-label">Monthly Volume</div>
-          <canvas id="volumeChart" height="100"></canvas>
-        </div>
+        <!-- Monthly volume -->
+        <section class="card chart-card">
+          <div class="section-label">Monthly Volume</div>
+          <canvas id="volumeChart" height="110"></canvas>
+        </section>
 
         <!-- Factors -->
-        <div class="card" id="factorsCard">
-          <div class="card-label">Affecting Parameters</div>
+        <section class="card" id="factorsCard">
+          <div class="section-label">Affecting Parameters</div>
           <div id="factorsList"></div>
-        </div>
+        </section>
 
         <!-- News -->
-        <div class="card" id="newsCard" style="display:none;">
-          <div class="card-label">Recent News</div>
+        <section class="card" id="newsCard" style="display:none;">
+          <div class="section-label">Recent News</div>
           <div id="newsList"></div>
-        </div>
+        </section>
       </div>
 
       </div><!-- /dashboardView -->
 
       <!-- Watchlist View -->
       <div id="watchlistView" style="display:none;">
-        <div id="wlTabBar" class="wl-tab-bar"></div>
+        <div class="wl-toolbar">
+          <div id="wlTabBar" class="wl-tab-bar"></div>
+          <span class="wl-count" id="wlCount"></span>
+        </div>
         <div class="watchlist-header">
           <div class="watchlist-add">
             <div class="watchlist-search-wrap">
-              <input type="text" id="watchlistInput" placeholder="Search stocks to add…" autocomplete="off" />
+              <input type="text" id="watchlistInput" placeholder="Add a company…" autocomplete="off" />
               <div class="watchlist-search-dropdown" id="watchlistDropdown"></div>
             </div>
-            <button id="watchlistAddBtn">Add</button>
+            <button id="watchlistAddBtn">Add +</button>
           </div>
         </div>
         <div id="watchlistLoading" class="loading-pulse" style="display:none;">
@@ -223,7 +217,7 @@
       </div>
 
       <footer>
-        Data from Yahoo Finance & Google News · Stan Weinstein 4-Stage Model · India & US markets · Not financial advice
+        Data from Yahoo Finance &amp; Google News · Stan Weinstein 4-Stage Model · India &amp; US markets · Not financial advice · v4.0
       </footer>
     </div>
   </div>

@@ -1,36 +1,29 @@
-// ── Design tokens (dark theme) ──────────────────────────────────────
+// ── Design tokens ("Private Ledger" light theme; mirrors style.css) ────
 const COLORS = {
-  blue: "#6366F1",
-  cyan: "#06B6D4",
-  green: "#10B981",
-  greenDim: "rgba(16,185,129,0.15)",
-  red: "#EF4444",
-  redDim: "rgba(239,68,68,0.15)",
-  amber: "#F59E0B",
-  amberDim: "rgba(245,158,11,0.15)",
-  purple: "#A78BFA",
-  gray: "#94A3B8",
-  grayDim: "rgba(148,163,184,0.15)",
-  textMuted: "#64748B",
-  border: "rgba(255,255,255,0.08)",
-  bg: "#0B0E14",
-  surface: "#151A23",
-  text: "#F1F5F9",
-  textSec: "#94A3B8",
+  ink: "#1C1B18",
+  ink2: "#3B3832",
+  mute: "#7B7466",
+  faint: "#A39C8E",
+  grid: "rgba(28,27,24,0.08)",
+  brass: "#A67C3D",
+  forest: "#1F6A46",
+  oxblood: "#9A2B22",
 };
+const CHART_FONT = "500 11px Inter, -apple-system, sans-serif";
 
 const SIGNAL_META = {
-  "BUY":  { color: "#10B981", bg: "rgba(16,185,129,0.15)", icon: "↑" },
-  "HOLD": { color: "#F59E0B", bg: "rgba(245,158,11,0.12)", icon: "→" },
-  "SELL": { color: "#EF4444", bg: "rgba(239,68,68,0.15)", icon: "↓" },
+  "BUY":  { color: COLORS.forest, cls: "sig-buy", word: "Buy" },
+  "HOLD": { color: COLORS.brass, cls: "sig-hold", word: "Hold" },
+  "SELL": { color: COLORS.oxblood, cls: "sig-sell", word: "Sell" },
 };
 
 const STAGE_COLOR = {
-  1: COLORS.gray,
-  2: COLORS.green,
-  3: COLORS.amber,
-  4: COLORS.red,
+  1: COLORS.mute,
+  2: COLORS.forest,
+  3: COLORS.brass,
+  4: COLORS.oxblood,
 };
+const ROMAN = ["", "I", "II", "III", "IV"];
 
 const FACTOR_POOL = [
   { name: "Fed Interest Rate Policy", type: "macro" },
@@ -68,6 +61,7 @@ const fmtBig = (n) => {
   if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
   return n.toLocaleString();
 };
+const fmtAxis = (v) => Math.abs(v) >= 100000 ? fmtBig(v) : fmt(v, Math.abs(v) >= 100 ? 0 : 2);
 const currSym = (c) => c === "INR" ? "₹" : "$";
 const escapeHtml = (s) => (s || "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 
@@ -84,6 +78,7 @@ function isFresh(timestamp) {
 let state = {
   ticker: "AAPL",
   stockName: "",
+  exchange: "",
   currency: "USD",
   history: [],
   statsHistory: [],
@@ -216,10 +211,11 @@ function drawLineChart(canvas, values, opts = {}) {
   const yAt = (v) => padT + plotH - ((v - niceMin) / niceRange) * plotH;
 
   // Grid lines & Y labels
-  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.strokeStyle = COLORS.grid;
   ctx.lineWidth = 1;
-  ctx.fillStyle = COLORS.textMuted;
-  ctx.font = "12px 'JetBrains Mono', monospace";
+  ctx.setLineDash([2, 4]);
+  ctx.fillStyle = COLORS.mute;
+  ctx.font = CHART_FONT;
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   const gridLines = 4;
@@ -232,13 +228,14 @@ function drawLineChart(canvas, values, opts = {}) {
     ctx.stroke();
     if (opts.yFormat) ctx.fillText(opts.yFormat(v), padL - 8, y);
   }
+  ctx.setLineDash([]);
 
   // Reference line
   if (opts.refValue != null) {
     const y = yAt(opts.refValue);
     ctx.save();
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = COLORS.textMuted;
+    ctx.strokeStyle = COLORS.mute;
     ctx.lineWidth = 0.8;
     ctx.beginPath();
     ctx.moveTo(padL, y);
@@ -246,6 +243,26 @@ function drawLineChart(canvas, values, opts = {}) {
     ctx.stroke();
     ctx.restore();
   }
+
+  // Labelled reference lines (e.g. year high / year low), only when inside the plotted range
+  (opts.refLines || []).forEach(({ value, label }) => {
+    if (value == null || value < niceMin || value > niceMax) return;
+    const y = Math.round(yAt(value)) + 0.5;
+    ctx.save();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = "rgba(166,124,61,0.55)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(W - padR, y);
+    ctx.stroke();
+    ctx.fillStyle = COLORS.brass;
+    ctx.font = "600 9.5px Inter, -apple-system, sans-serif";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(label, W - padR, y - 3);
+    ctx.restore();
+  });
 
   // Area fill
   if (opts.fillColor) {
@@ -268,24 +285,31 @@ function drawLineChart(canvas, values, opts = {}) {
     const x = xAt(i), y = yAt(v);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
-  ctx.strokeStyle = opts.color || COLORS.blue;
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = opts.color || COLORS.ink;
+  ctx.lineWidth = 1.6;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.stroke();
 
   // X Labels
   if (opts.xLabels) {
-    ctx.fillStyle = COLORS.textMuted;
+    ctx.fillStyle = COLORS.mute;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    ctx.font = "11px 'JetBrains Mono', monospace";
+    ctx.font = CHART_FONT;
     opts.xLabels.forEach((label, i) => {
-      if (label) ctx.fillText(label, xAt(i), padT + plotH + 5);
+      if (label) drawXLabel(ctx, label, xAt(i), padT + plotH + 6, padL, W - padR);
     });
   }
 
-  attachHover(canvas, { xAt, yAt, values, padL, padT, plotW, plotH, tooltipFormat: opts.tooltipFormat, color: opts.color || COLORS.blue });
+  attachHover(canvas, { xAt, yAt, values, padL, padT, plotW, plotH, tooltipFormat: opts.tooltipFormat, color: opts.color || COLORS.ink });
+}
+
+// Centered axis label, nudged inward so it never clips at the plot edges.
+function drawXLabel(ctx, label, x, y, minX, maxX) {
+  const half = ctx.measureText(label).width / 2;
+  ctx.textAlign = "center";
+  ctx.fillText(label, Math.min(Math.max(x, minX + half), maxX - half), y);
 }
 
 function drawBarChart(canvas, values, colors, opts = {}) {
@@ -302,10 +326,11 @@ function drawBarChart(canvas, values, colors, opts = {}) {
   const barGap = 1.5;
   const barW = Math.max(1, plotW / values.length - barGap);
 
-  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.strokeStyle = COLORS.grid;
   ctx.lineWidth = 1;
-  ctx.fillStyle = COLORS.textMuted;
-  ctx.font = "12px 'JetBrains Mono', monospace";
+  ctx.setLineDash([2, 4]);
+  ctx.fillStyle = COLORS.mute;
+  ctx.font = CHART_FONT;
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   const gridLines = 3;
@@ -318,12 +343,13 @@ function drawBarChart(canvas, values, colors, opts = {}) {
     ctx.stroke();
     if (opts.yFormat) ctx.fillText(opts.yFormat(v), padL - 8, y);
   }
+  ctx.setLineDash([]);
 
   values.forEach((v, i) => {
     const x = padL + i * (plotW / values.length) + barGap / 2;
     const h = (v / max) * plotH;
     const y = padT + plotH - h;
-    ctx.fillStyle = colors[i] || COLORS.blue;
+    ctx.fillStyle = colors[i] || COLORS.ink;
     const r = Math.min(2, barW / 2);
     roundRectTop(ctx, x, y, barW, h, r);
     ctx.fill();
@@ -333,7 +359,7 @@ function drawBarChart(canvas, values, colors, opts = {}) {
     xAt: (i) => padL + i * (plotW / values.length) + (plotW / values.length) / 2,
     yAt: (v) => padT + plotH - (v / max) * plotH,
     values, padL, padT, plotW, plotH,
-    tooltipFormat: opts.tooltipFormat, color: COLORS.blue, isBar: true,
+    tooltipFormat: opts.tooltipFormat, color: COLORS.ink, isBar: true,
   });
 }
 
@@ -379,10 +405,11 @@ function drawStageChart(canvas, stageData) {
   const yAt = (v) => padT + plotH - ((v - niceMin) / niceRange) * plotH;
 
   // Grid
-  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.strokeStyle = COLORS.grid;
   ctx.lineWidth = 1;
-  ctx.fillStyle = COLORS.textMuted;
-  ctx.font = "12px 'JetBrains Mono', monospace";
+  ctx.setLineDash([2, 4]);
+  ctx.fillStyle = COLORS.mute;
+  ctx.font = CHART_FONT;
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
@@ -392,10 +419,13 @@ function drawStageChart(canvas, stageData) {
     ctx.moveTo(padL, Math.round(y) + 0.5);
     ctx.lineTo(W - padR, Math.round(y) + 0.5);
     ctx.stroke();
-    ctx.fillText(currSym(state.currency) + fmtBig(v), padL - 8, y);
+    ctx.fillText(currSym(state.currency) + fmtAxis(v), padL - 8, y);
   }
+  ctx.setLineDash([]);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
 
-  // 1. Draw 52W EMA line (Purple)
+  // 1. 52W EMA (dotted, muted)
   if (state.stageToggles.ema) {
     ctx.beginPath();
     ema52.forEach((v, i) => {
@@ -403,12 +433,14 @@ function drawStageChart(canvas, stageData) {
       const x = xAt(i), y = yAt(v);
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     });
-    ctx.strokeStyle = COLORS.purple;
-    ctx.lineWidth = 1.6;
+    ctx.setLineDash([1, 4]);
+    ctx.strokeStyle = COLORS.mute;
+    ctx.lineWidth = 1.8;
     ctx.stroke();
+    ctx.setLineDash([]);
   }
 
-  // 2. Draw 30W SMA line (Amber)
+  // 2. 30W SMA (brass)
   if (state.stageToggles.sma) {
     ctx.beginPath();
     let started = false;
@@ -417,40 +449,39 @@ function drawStageChart(canvas, stageData) {
       const x = xAt(i), y = yAt(v);
       if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
     });
-    ctx.strokeStyle = COLORS.amber;
+    ctx.strokeStyle = COLORS.brass;
     ctx.lineWidth = 2;
     ctx.stroke();
   }
 
-  // 3. Draw Price Line (Blue)
+  // 3. Price (ink)
   ctx.beginPath();
   closes.forEach((v, i) => {
     const x = xAt(i), y = yAt(v);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
-  ctx.strokeStyle = COLORS.blue;
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 1.3;
   ctx.stroke();
 
   // X date labels
   const n = dates.length;
-  const step = Math.max(1, Math.floor(n / 5));
-  ctx.fillStyle = COLORS.textMuted;
-  ctx.textAlign = "center";
+  const step = Math.max(1, Math.floor(n / (W < 500 ? 4 : 5)));
+  ctx.fillStyle = COLORS.mute;
   ctx.textBaseline = "top";
-  ctx.font = "11px 'JetBrains Mono', monospace";
+  ctx.font = CHART_FONT;
   dates.forEach((d, i) => {
-    if (i % step === 0 || i === n - 1) {
+    if ((i % step === 0 && (n - 1 - i) >= Math.floor(step * 0.75)) || i === n - 1) {
       const dt = new Date(d);
       const mon = dt.toLocaleString("en", { month: "short" });
       const yr = "'" + String(dt.getFullYear()).slice(-2);
-      ctx.fillText(`${mon} ${yr}`, xAt(i), padT + plotH + 5);
+      drawXLabel(ctx, `${mon} ${yr}`, xAt(i), padT + plotH + 6, padL, W - padR);
     }
   });
 
   // Attach hover for Stage Chart
   attachHover(canvas, {
-    xAt, yAt, values: closes, padL, padT, plotW, plotH, color: COLORS.blue,
+    xAt, yAt, values: closes, padL, padT, plotW, plotH, color: COLORS.ink,
     tooltipFormat: (v, i) => {
       let txt = `${dates[i]}  Price: ${currSym(state.currency)}${fmt(v)}`;
       if (state.stageToggles.sma && ma30[i] != null) txt += ` · 30W SMA: ${fmt(ma30[i])}`;
@@ -537,7 +568,7 @@ function drawCrosshair(canvas, cfg, px, py) {
     wrap.style.position = "relative";
 
     line = document.createElement("div");
-    line.style.cssText = "position:absolute;border-left:1px dashed rgba(255,255,255,0.15);pointer-events:none;display:none;z-index:10;";
+    line.style.cssText = "position:absolute;border-left:1px dashed rgba(28,27,24,0.3);pointer-events:none;display:none;z-index:10;";
     wrap.appendChild(line);
     canvas._crosshairLine = line;
 
@@ -565,7 +596,7 @@ function drawCrosshair(canvas, cfg, px, py) {
     dot.style.display = "block";
     dot.style.left = (offsetLeft + px) + "px";
     dot.style.top = (offsetTop + py) + "px";
-    dot.style.background = cfg.color || "#FFF";
+    dot.style.background = cfg.color || COLORS.ink;
   } else {
     dot.style.display = "none";
   }
@@ -647,6 +678,7 @@ async function loadTicker(ticker) {
   state.timeframe = "1y";
   document.querySelectorAll(".tf-btn").forEach(b => b.classList.toggle("active", b.dataset.range === "1y"));
   el("content").style.display = "none";
+  el("tickerBar").style.display = "none";
   el("errorBox").style.display = "none";
   el("loadingMain").style.display = "flex";
   el("loadingMainText").textContent = `Analyzing ${ticker}…`;
@@ -664,6 +696,7 @@ async function loadTicker(ticker) {
     state.high52 = cachedChart.data.high52;
     state.low52 = cachedChart.data.low52;
     state.stockName = cachedMeta.stockName;
+    state.exchange = cachedChart.data.exchange || "";
     state.currency = cachedMeta.currency;
     state.news = cachedMeta.news;
     state.stageData = cachedMeta.stageData;
@@ -693,6 +726,7 @@ async function loadTicker(ticker) {
     state.high52 = cData.high52;
     state.low52 = cData.low52;
     state.stockName = cData.name || ticker;
+    state.exchange = cData.exchange || "";
     state.currency = cData.currency || "USD";
     state.news = nData.articles || [];
     state.stageData = sData;
@@ -746,9 +780,17 @@ function renderAllUI() {
 // ── Render Ticker Bar ────────────────────────────────────────────────
 function renderTickerBar() {
   el("tickerBar").style.display = "flex";
-  el("tickerSymbol").textContent = state.ticker;
-  el("tickerName").textContent = state.stockName;
+  el("tickerExchange").textContent = state.exchange || "";
+  el("tickerSymbol").textContent = state.ticker.replace(/\.(NS|BO)$/, "");
   el("tickerCurrency").textContent = state.currency;
+  el("tickerName").textContent = state.stockName;
+}
+
+function renderMastDate() {
+  const d = new Date();
+  const wd = d.toLocaleString("en-US", { weekday: "short" });
+  const mon = d.toLocaleString("en-US", { month: "short" });
+  el("mastDate").textContent = `${wd} · ${d.getDate()} ${mon} ${d.getFullYear()}`;
 }
 
 // ── Render 52-Week Range Bar ──────────────────────────────────────────
@@ -767,20 +809,16 @@ function renderRangeBar() {
 
   card.style.display = "block";
   const pct = Math.max(0, Math.min(100, ((current - low) / (high - low)) * 100));
+  const sym = currSym(state.currency);
 
-  el("range52Low").textContent = `${currSym(state.currency)}${fmt(low)}`;
-  el("range52High").textContent = `${currSym(state.currency)}${fmt(high)}`;
-  el("rangeCurrentLbl").textContent = `Current: ${currSym(state.currency)}${fmt(current)}`;
-  
-  let badgeText = `${pct.toFixed(0)}% of Range`;
-  if (pct <= 25) {
-    badgeText = `Near 1-Year Low (${pct.toFixed(0)}%)`;
-  } else if (pct >= 75) {
-    badgeText = `Near 1-Year High (${pct.toFixed(0)}%)`;
-  } else {
-    badgeText = `Mid-Range (${pct.toFixed(0)}%)`;
-  }
-  el("rangeBarBadge").textContent = badgeText;
+  el("range52Low").textContent = `${sym}${fmt(low)}`;
+  el("range52High").textContent = `${sym}${fmt(high)}`;
+  const lbl = el("rangeCurrentLbl");
+  lbl.textContent = `${sym}${fmt(current)}`;
+  lbl.style.left = `${Math.min(Math.max(pct, 7), 93)}%`;
+
+  const where = pct >= 75 ? "close to the high" : pct <= 25 ? "close to the low" : "roughly midway";
+  el("rangeBarBadge").textContent = `Trading at ${pct.toFixed(0)}% of its one-year range, ${where}.`;
   el("rangeFill").style.width = `${pct}%`;
   el("rangePin").style.left = `${pct}%`;
 }
@@ -796,11 +834,12 @@ function renderStageCard() {
 
   card.style.display = "block";
 
-  // 1. Stage Badge & Stepper
-  const badge = el("stageBadge");
-  badge.textContent = `Stage ${s.stage}: ${s.stageLabel}`;
-  badge.style.color = STAGE_COLOR[s.stage] || COLORS.gray;
-  badge.style.background = (STAGE_COLOR[s.stage] || COLORS.gray) + "22";
+  // 1. Stage heading & stepper
+  el("stageBadge").textContent = `Stage ${ROMAN[s.stage] || s.stage} — ${s.stageLabel}`;
+  el("stageStepper").style.setProperty("--stage-color", STAGE_COLOR[s.stage] || COLORS.mute);
+  const pvm = el("stagePvm");
+  pvm.textContent = `${s.priceVsMaPct >= 0 ? "+" : ""}${s.priceVsMaPct}% vs 30-wk avg`;
+  pvm.style.color = s.priceVsMaPct >= 0 ? COLORS.forest : COLORS.oxblood;
 
   document.querySelectorAll("#stageStepper .step-pill").forEach(pill => {
     const stepNum = parseInt(pill.dataset.step, 10);
@@ -854,12 +893,12 @@ function renderKeyLevels() {
   card.style.display = "block";
 
   el("levelSupport").textContent = `${currSym(state.currency)}${fmt(s.support)}`;
-  el("levelSupportDist").textContent = `Safety Cushion: ${s.downsidePct}% to floor`;
+  el("levelSupportDist").textContent = `${s.downsidePct}% below today`;
 
   el("levelResistance").textContent = `${currSym(state.currency)}${fmt(s.resistance)}`;
-  el("levelResistanceDist").textContent = `Upside Target: +${s.upsidePct}% to ceiling`;
+  el("levelResistanceDist").textContent = `${s.upsidePct}% above today`;
 
-  el("riskRewardBadge").textContent = `Risk:Reward  1 : ${s.riskReward}`;
+  el("riskRewardBadge").innerHTML = `Risk to reward <b>1 : ${escapeHtml(String(s.riskReward))}</b>`;
 
   // Smart action scenario advice
   const buyEl = el("scenarioBuy");
@@ -939,43 +978,45 @@ function computeStats() {
   return { lastClose, monthlyChange, yrReturn, avgVol, lastDate };
 }
 
+function fmtLongDate(iso) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(y, m - 1, d).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
 function renderStats() {
   const stats = computeStats();
   state._stats = stats;
-  const items = [
-    { label: "📌 Last Close", value: `${currSym(state.currency)}${fmt(stats.lastClose)}`, sub: stats.lastDate, color: "var(--text)" },
-    { label: "Monthly", value: stats.monthlyChange != null ? `${stats.monthlyChange >= 0 ? "+" : ""}${stats.monthlyChange}%` : "—", color: stats.monthlyChange >= 0 ? "var(--green)" : "var(--red)" },
-    { label: "1Y Return", value: stats.yrReturn != null ? `${stats.yrReturn >= 0 ? "+" : ""}${stats.yrReturn}%` : "—", color: stats.yrReturn >= 0 ? "var(--green)" : "var(--red)" },
-    { label: "Monthly Vol", value: fmtBig(stats.avgVol), color: "var(--text)" },
+  const signed = (v) => `${v >= 0 ? "+" : ""}${v}%`;
+  const tone = (v) => v == null ? "" : v >= 0 ? "pos" : "neg";
+
+  el("heroPrice").textContent = stats.lastClose != null ? `${currSym(state.currency)}${fmt(stats.lastClose)}` : "—";
+  const chg = el("heroChange");
+  chg.className = `price-change ${tone(stats.yrReturn)}`;
+  chg.innerHTML = stats.yrReturn != null ? `${signed(stats.yrReturn)}<small>over the year</small>` : "";
+  el("heroDate").textContent = stats.lastDate ? `Last close · ${fmtLongDate(stats.lastDate)}` : "";
+
+  const s = state.stageData;
+  const cells = [
+    { label: "Past month", value: stats.monthlyChange != null ? signed(stats.monthlyChange) : "—", cls: tone(stats.monthlyChange) },
+    { label: "Signal", value: "—", id: "signalValue", cellId: "signalCard" },
+    { label: "Monthly volume", value: fmtBig(stats.avgVol) },
+    { label: "Stage", value: s ? `${ROMAN[s.stage] || s.stage}<em>${escapeHtml(s.stageLabel)}</em>` : "—" },
   ];
-  let html = items.map((it) => `
-    <div class="card stat-card">
-      <div class="stat-label">${it.label}</div>
-      <div class="stat-value" style="color:${it.color}">${it.value}</div>
-      ${it.sub ? `<div style="font-size:11px;color:var(--text-muted);font-family:var(--mono)">${it.sub}</div>` : ""}
-    </div>
-  `).join("");
-  html += `
-    <div class="card signal-card" id="signalCard">
-      <div class="stat-label">Signal</div>
-      <div class="signal-value-row">
-        <span class="stat-value" id="signalValue" style="color:var(--text-muted)">—</span>
-      </div>
-    </div>
-  `;
-  el("statRow").innerHTML = html;
+  el("statRow").innerHTML = cells.map((c) => `
+    <div class="stat-cell"${c.cellId ? ` id="${c.cellId}"` : ""}>
+      <div class="stat-label">${c.label}</div>
+      <div class="stat-value ${c.cls || ""}"${c.id ? ` id="${c.id}"` : ""}>${c.value}</div>
+    </div>`).join("");
 }
 
 function updateSignalStat() {
   const a = state.analysis;
-  const card = el("signalCard");
   const valueEl = el("signalValue");
-  if (!a || !card || !valueEl) return;
+  if (!a || !valueEl) return;
   const sig = SIGNAL_META[a.signal] || SIGNAL_META.HOLD;
-  card.style.borderColor = sig.color + "33";
-  card.classList.add("glow");
   valueEl.style.color = sig.color;
-  valueEl.innerHTML = `${a.signal} <span class="signal-conf-badge">${a.confidence}%</span>`;
+  valueEl.innerHTML = `${sig.word}<small>${escapeHtml(String(a.confidence))}%</small>`;
 }
 
 // ── Timeframe Buttons ─────────────────────────────────────────────────
@@ -1034,10 +1075,11 @@ function renderPriceChart() {
   const dates = state.history.map((d) => d.date);
 
   const n = dates.length;
-  const labelCount = Math.min(6, n);
+  const narrow = (canvas.parentElement ? canvas.parentElement.clientWidth : 0) < 500;
+  const labelCount = Math.min(narrow ? 4 : 6, n);
   const step = Math.max(1, Math.floor(n / labelCount));
   const xLabels = dates.map((d, i) => {
-    if ((i % step === 0 && (n - 1 - i) >= Math.floor(step * 0.5)) || i === n - 1) {
+    if ((i % step === 0 && (n - 1 - i) >= Math.floor(step * 0.75)) || i === n - 1) {
       const parts = d.split("-");
       if (parts.length === 3) {
         const dt = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
@@ -1056,7 +1098,8 @@ function renderPriceChart() {
     if (firstClose != null && firstClose > 0 && lastClose != null && lastClose > 0) {
       const pct = ((lastClose - firstClose) / firstClose * 100).toFixed(1);
       const isUp = parseFloat(pct) >= 0;
-      badge.textContent = `${isUp ? "▲" : "▼"} ${Math.abs(parseFloat(pct))}%`;
+      const tf = TIMEFRAMES.find((t) => t.range === state.timeframe);
+      badge.textContent = `${isUp ? "+" : "−"}${Math.abs(parseFloat(pct)).toFixed(1)}% over ${tf ? tf.label : "the period"}`;
       badge.className = "price-change-badge " + (isUp ? "positive" : "negative");
     } else {
       badge.textContent = "—";
@@ -1064,9 +1107,13 @@ function renderPriceChart() {
   }
 
   drawLineChart(canvas, data, {
-    color: COLORS.blue,
-    fillColor: COLORS.blue,
-    yFormat: (v) => currSym(state.currency) + fmtBig(v),
+    color: COLORS.ink,
+    fillColor: COLORS.brass,
+    refLines: [
+      { value: state.high52, label: `YEAR HIGH ${fmt(state.high52)}` },
+      { value: state.low52, label: `YEAR LOW ${fmt(state.low52)}` },
+    ],
+    yFormat: (v) => currSym(state.currency) + fmtAxis(v),
     xLabels,
     tooltipFormat: (v, i) => `${dates[i]}  ${currSym(state.currency)}${fmt(v)}`,
   });
@@ -1078,7 +1125,7 @@ function renderVolumeChart() {
   const monthly = getMonthlyData(state.history);
   const data = monthly.map((d) => d.volume);
   const dates = monthly.map((d) => d.date);
-  const colors = monthly.map((d) => d.close >= d.open ? COLORS.green + "aa" : COLORS.red + "88");
+  const colors = monthly.map((d) => d.close >= d.open ? COLORS.forest + "99" : COLORS.oxblood + "80");
 
   drawBarChart(canvas, data, colors, {
     yFormat: (v) => fmtBig(v),
@@ -1164,82 +1211,52 @@ function renderVerdict() {
   const sig = SIGNAL_META[a.signal] || SIGNAL_META.HOLD;
   const impactfulNews = state.news.filter((n) => n.isImpactful);
 
-  let alertHtml = "";
-  if (impactfulNews.length) {
-    alertHtml = `
-      <div class="market-alert">
-        <div class="market-alert-title">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="${COLORS.amber}" stroke-width="2.5" stroke-linecap="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-          Market Alert
-        </div>
-        ${impactfulNews.slice(0, 3).map((n) => `<div class="market-alert-item">• ${escapeHtml(n.title)}</div>`).join("")}
+  const alertHtml = impactfulNews.length ? `
+    <div class="market-alert">
+      <div class="market-alert-title">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        Market alert
       </div>
-    `;
-  }
+      ${impactfulNews.slice(0, 3).map((n) => `<div class="market-alert-item">${escapeHtml(n.title)}</div>`).join("")}
+    </div>` : "";
 
   card.innerHTML = `
-    <div class="card verdict-card glow">
-      <div class="verdict-accent" style="background: linear-gradient(90deg, ${sig.color}66 0%, transparent 100%)"></div>
-      <div class="verdict-body">
-        <div class="verdict-top">
-          <div>
-            <div class="verdict-label">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${COLORS.blue}" stroke-width="2" stroke-linecap="round">
-                <path d="M12 2a7 7 0 017 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 01-2 2h-4a2 2 0 01-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 017-7z"/>
-                <line x1="10" y1="22" x2="14" y2="22"/>
-              </svg>
-              AI Research Verdict
-            </div>
-            <div class="verdict-headline">${escapeHtml(a.adviceHeadline)}</div>
-          </div>
-          <div class="verdict-signal-col">
-            <span class="signal-pill" style="background:${sig.bg}; color:${sig.color}; box-shadow: 0 0 12px ${sig.color}22;">${sig.icon} ${a.signal}</span>
-            <div class="conf-bar-row">
-              <div class="conf-bar-track"><div class="conf-bar-fill" style="width:${a.confidence}%; background:${sig.color}"></div></div>
-              <span class="conf-bar-text">${a.confidence}%</span>
-            </div>
-          </div>
-        </div>
-        <p class="verdict-detail">${escapeHtml(a.adviceDetail)}</p>
-        <div class="verdict-action">${escapeHtml(a.adviceAction)}</div>
-        ${alertHtml}
-        <div class="ai-source-line">
-          <span class="ai-source-dot" style="background:${COLORS.purple}"></span>
-          AI-Powered Analysis · Not financial advice
-        </div>
+    <article class="card verdict">
+      <div class="verdict-head">
+        <h3 class="verdict-headline">${escapeHtml(a.adviceHeadline)}</h3>
+        <div class="verdict-stamp ${sig.cls}"><div><b>${escapeHtml(a.signal)}</b><small>${escapeHtml(String(a.confidence))}% CONF.</small></div></div>
       </div>
-    </div>
-  `;
+      <p class="verdict-detail">${escapeHtml(a.adviceDetail)}</p>
+      <blockquote class="verdict-action">${escapeHtml(a.adviceAction)}</blockquote>
+      ${alertHtml}
+      <div class="ai-source-line"><span class="ai-source-dot"></span>AI-powered analysis · Not financial advice</div>
+    </article>`;
 }
 
 function renderFactors() {
   const a = state.analysis;
   const flist = el("factorsList");
   if (!a || !a.factors || !flist) return;
-  const typeStyle = {
-    macro: { color: COLORS.blue, bg: "rgba(99,102,241,0.15)" },
-    sentiment: { color: COLORS.amber, bg: COLORS.amberDim },
-    financial: { color: COLORS.green, bg: COLORS.greenDim },
-  };
+  const typeColor = { macro: COLORS.brass, sentiment: COLORS.mute, financial: COLORS.forest };
   flist.innerHTML = a.factors.map((f, i) => {
-    const ts = typeStyle[f.type] || typeStyle.macro;
     const pct = Math.min(Math.abs(f.impact) * 10, 100);
     const pos = f.impact >= 0;
+    const tone = pos ? COLORS.forest : COLORS.oxblood;
     return `
       <div class="factor-item" style="animation-delay:${i * 0.05}s">
         <div class="factor-top">
           <div class="factor-left">
-            <span class="factor-type-badge" style="background:${ts.bg}; color:${ts.color}">${f.type}</span>
             <span class="factor-name">${escapeHtml(f.name)}</span>
+            <span class="factor-type-badge" style="color:${typeColor[f.type] || COLORS.brass}">${escapeHtml(f.type)}</span>
           </div>
-          <span class="factor-impact" style="color:${pos ? COLORS.green : COLORS.red}">${pos ? "+" : ""}${f.impact}</span>
+          <span class="factor-impact" style="color:${tone}">${pos ? "+" : ""}${escapeHtml(String(f.impact))}</span>
         </div>
         <div class="factor-desc">${escapeHtml(f.desc)}</div>
         <div class="factor-bar-track">
-          <div class="factor-bar-fill" style="width:${pct}%; background:linear-gradient(90deg, ${pos ? COLORS.green : COLORS.red}88, ${pos ? COLORS.green : COLORS.red})"></div>
+          <div class="factor-bar-fill" style="width:${pct}%; background:${tone}"></div>
         </div>
       </div>
     `;
@@ -1257,7 +1274,7 @@ function renderNews() {
       ? (a.sentimentScore >= 4 ? "Positive" : a.sentimentScore <= 2 ? "Negative" : "Neutral")
       : "";
     const sentColor = a.sentimentScore != null
-      ? (a.sentimentScore >= 4 ? COLORS.green : a.sentimentScore <= 2 ? COLORS.red : COLORS.gray)
+      ? (a.sentimentScore >= 4 ? COLORS.forest : a.sentimentScore <= 2 ? COLORS.oxblood : COLORS.mute)
       : "";
     return `
     <a href="${escapeHtml(a.link)}" target="_blank" rel="noopener noreferrer" class="news-item ${a.isImpactful ? "impactful" : ""}">
@@ -1318,7 +1335,7 @@ function showToast(msg) {
   const t = document.createElement("div");
   t.id = "sdToast";
   t.textContent = msg;
-  t.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface,#1a1d23);border:1px solid var(--border,#2a2d35);color:var(--text,#e0e0e0);padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;opacity:0;transition:opacity 0.3s;";
+  t.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface,#1a1d23);border:1px solid var(--border,#2a2d35);color:var(--text,#e0e0e0);padding:10px 20px;border-radius:8px;font-size:13px;white-space:nowrap;z-index:9999;opacity:0;transition:opacity 0.3s;";
   document.body.appendChild(t);
   requestAnimationFrame(() => t.style.opacity = "1");
   setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 300); }, 2500);
@@ -1416,11 +1433,11 @@ function showWlDeleteConfirm(tabName, onConfirm) {
   const box = document.createElement("div");
   box.style.cssText = "background:var(--surface,#1a1d23);border:1px solid var(--border,#2a2d35);border-radius:12px;padding:24px;max-width:320px;width:90%;text-align:center;";
   box.innerHTML = `
-    <div style="font-size:16px;font-weight:600;color:var(--text,#e0e0e0);margin-bottom:8px;">Delete "${tabName}"?</div>
+    <div style="font:500 20px var(--serif,Georgia,serif);color:var(--text,#e0e0e0);margin-bottom:8px;">Delete "${tabName}"?</div>
     <div style="font-size:13px;color:var(--text-sec,#8b8d93);margin-bottom:20px;">All stocks in this list will be removed.</div>
     <div style="display:flex;gap:10px;justify-content:center;">
       <button id="wlDelNo" style="padding:8px 24px;background:var(--glass,#252830);border:1px solid var(--border,#2a2d35);color:var(--text,#e0e0e0);border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">No</button>
-      <button id="wlDelYes" style="padding:8px 24px;background:#e24b4a;border:none;color:white;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">Yes, delete</button>
+      <button id="wlDelYes" style="padding:8px 24px;background:var(--red,#e24b4a);border:none;color:white;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">Yes, delete</button>
     </div>`;
   overlay.appendChild(box);
   document.body.appendChild(overlay);
@@ -1439,7 +1456,7 @@ function renderWlTabs() {
     return `<button class="wl-tab${active}" data-tabidx="${i}"><span class="wl-tab-name" data-nameidx="${i}">${escapeHtml(l.name)}</span>${canDelete}</button>`;
   }).join("");
   if (store.lists.length < WL_MAX_LISTS) {
-    html += `<button class="wl-tab wl-tab-add" id="wlAddTab" title="Add watchlist">+</button>`;
+    html += `<button class="wl-tab wl-tab-add" id="wlAddTab" title="Add watchlist">+ New list</button>`;
   }
   bar.innerHTML = html;
 
@@ -1565,6 +1582,7 @@ const wlCache = {};
 
 async function loadWatchlist(force) {
   const tickers = getWatchlistTickers();
+  el("wlCount").textContent = `${tickers.length} of ${WL_MAX_PER_LIST}`;
   const grid = el("watchlistGrid");
   const empty = el("watchlistEmpty");
   const loading = el("watchlistLoading");
@@ -1633,8 +1651,7 @@ function getWlSortVal(item, key) {
 
 function fmtEma(price, pct, sym) {
   const sign = pct >= 0 ? "+" : "";
-  const color = pct >= 0 ? COLORS.green : COLORS.red;
-  return `<span class="wl-ema-price">${sym}${fmt(price)}</span><span class="wl-ema-pct" style="color:${color}">${sign}${pct.toFixed(1)}%</span>`;
+  return `<span class="wl-ema-price">${sym}${fmt(price)}</span><span class="wl-ema-pct ${pct >= 0 ? "pos" : "neg"}">${sign}${pct.toFixed(1)}%</span>`;
 }
 
 function renderWatchlistTable() {
@@ -1650,36 +1667,37 @@ function renderWatchlistTable() {
 
   const arrow = (key) => wlSortKey === key ? (wlSortAsc ? " ▲" : " ▼") : "";
   const cols = [
-    { key: "ticker", label: "Stock" },
+    { key: "ticker", label: "Company" },
+    { key: "price", label: "Price", num: true },
+    { key: "yrReturn", label: "1 Yr", num: true },
+    { key: "signal", label: "View", num: true },
     { key: "stage", label: "Stage" },
-    { key: "signal", label: "Signal" },
-    { key: "price", label: "Price" },
-    { key: "yrReturn", label: "1Y Return" },
-    { key: "ema10", label: "10w EMA" },
-    { key: "ema20", label: "20w EMA" },
-    { key: "ema40", label: "40w EMA" },
+    { key: "ema10", label: "10W EMA", num: true },
+    { key: "ema20", label: "20W EMA", num: true },
+    { key: "ema40", label: "40W EMA", num: true },
   ];
 
   const headerHtml = cols.map(c =>
-    `<th class="wl-th${wlSortKey === c.key ? " wl-th-active" : ""}" data-sort="${c.key}">${c.label}${arrow(c.key)}</th>`
+    `<th class="wl-th${c.num ? " num" : ""}${wlSortKey === c.key ? " wl-th-active" : ""}" data-sort="${c.key}">${c.label}${arrow(c.key)}</th>`
   ).join("") + `<th class="wl-th wl-th-actions"></th>`;
 
   const rowsHtml = sorted.map(item => {
     const sig = SIGNAL_META[item.signal] || SIGNAL_META.HOLD;
     const sym = item.currency === "INR" ? "₹" : "$";
     const yrStr = item.yrReturn != null ? `${item.yrReturn >= 0 ? "+" : ""}${Number(item.yrReturn).toFixed(1)}%` : "—";
-    const yrColor = item.yrReturn >= 0 ? COLORS.green : COLORS.red;
-    const displayTicker = item.ticker.replace(/\.(NS|BO)/, "");
+    const displayTicker = item.ticker.replace(/\.(NS|BO)$/, "");
+    const name = item.name && item.name !== item.ticker ? item.name : displayTicker;
+    const sub = [displayTicker, item.exchange].filter(Boolean).join(" · ");
     return `
       <tr class="wl-row" data-ticker="${escapeHtml(item.ticker)}">
-        <td class="wl-td wl-td-ticker"><a data-view="${escapeHtml(item.ticker)}">${escapeHtml(displayTicker)}</a></td>
-        <td class="wl-td"><span class="wl-stage-badge wl-stage-${item.stage || 1}">S${item.stage || "—"} · ${escapeHtml(item.stageLabel || "—")}</span></td>
-        <td class="wl-td"><span class="signal-pill" style="background:${sig.bg};color:${sig.color};">${item.signal || "HOLD"}</span></td>
-        <td class="wl-td wl-td-mono">${sym}${fmt(item.lastClose)}</td>
-        <td class="wl-td wl-td-mono" style="color:${yrColor}">${yrStr}</td>
-        <td class="wl-td wl-td-ema">${fmtEma(item.ema10 || 0, item.ema10Pct || 0, sym)}</td>
-        <td class="wl-td wl-td-ema">${fmtEma(item.ema20 || 0, item.ema20Pct || 0, sym)}</td>
-        <td class="wl-td wl-td-ema">${fmtEma(item.ema40 || 0, item.ema40Pct || 0, sym)}</td>
+        <td class="wl-td wl-td-ticker"><a data-view="${escapeHtml(item.ticker)}" title="${escapeHtml(name)}">${escapeHtml(name)}</a><div class="wl-co-sub">${escapeHtml(sub)}</div></td>
+        <td class="wl-td num">${sym}${fmt(item.lastClose)}</td>
+        <td class="wl-td num ${item.yrReturn >= 0 ? "pos" : "neg"}">${yrStr}</td>
+        <td class="wl-td num"><span class="wl-view ${sig.cls}">${sig.word}</span></td>
+        <td class="wl-td"><span class="wl-stage-badge wl-stage-${item.stage || 1}">${ROMAN[item.stage] || "—"} · ${escapeHtml(item.stageLabel || "—")}</span></td>
+        <td class="wl-td wl-td-ema num">${fmtEma(item.ema10 || 0, item.ema10Pct || 0, sym)}</td>
+        <td class="wl-td wl-td-ema num">${fmtEma(item.ema20 || 0, item.ema20Pct || 0, sym)}</td>
+        <td class="wl-td wl-td-ema num">${fmtEma(item.ema40 || 0, item.ema40Pct || 0, sym)}</td>
         <td class="wl-td wl-td-actions">
           <button class="wl-remove-btn" data-remove="${escapeHtml(item.ticker)}" title="Remove">✕</button>
         </td>
@@ -1706,4 +1724,5 @@ function renderWatchlistTable() {
 }
 
 // ── Initialize App ────────────────────────────────────────────────────
+renderMastDate();
 loadTicker(state.ticker);
