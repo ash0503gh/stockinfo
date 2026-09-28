@@ -753,9 +753,16 @@ async function loadTicker(ticker) {
     if (!state.history.length) throw new Error("No price history available");
 
     renderAllUI();
-    state.fundamentals = await Promise.race([fundP, new Promise((r) => setTimeout(() => r(null), 8000))]);
+    // Registered before the race below, so a timely result is in state before the verdict runs.
+    fundP.then((f) => {
+      if (state.ticker !== ticker) return;
+      state.fundamentals = f;
+      renderFundamentals();
+      const meta = tickerCache.get(ticker);
+      if (meta) meta.fundamentals = f;
+    });
+    await Promise.race([fundP, new Promise((r) => setTimeout(r, 8000))]);
     if (state.ticker !== ticker) return;
-    renderFundamentals();
     await runAiAnalysis();
 
     // Cache full ticker metadata

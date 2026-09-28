@@ -5,6 +5,7 @@ import httpx
 import asyncio
 import email.utils
 import yfinance as yf
+from curl_cffi import requests as curl_requests
 from yahooquery import search
 from datetime import datetime, timedelta, timezone
 import xml.etree.ElementTree as ET
@@ -875,9 +876,23 @@ Include 5-7 factors."""
 
 # ── Fundamentals ──────────────────────────────────────────────────────
 
-FUND_TTL_SECONDS = 24 * 3600  # fundamentals change quarterly; also keeps Yahoo call volume (and 401 risk) low
-STALE_RESULTS_DAYS = 152       # ~5 months: a newer quarter should have been reported by then
+FUND_TTL_SECONDS = 24 * 3600          # fundamentals change quarterly; also keeps Yahoo call volume (and 401 risk) low
+FUND_PARTIAL_TTL_SECONDS = 30 * 60    # Yahoo refused part of the data: try again sooner
+STALE_RESULTS_DAYS = 152              # ~5 months: a newer quarter should have been reported by then
+# ticker -> (expires_at, data). Expired entries are kept as last-known-good for when Yahoo refuses us.
 _fund_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _fund_score(d) -> int:
+    """0 = nothing usable, 1 = valuation or quarterly results only, 2 = both."""
+    if not d:
+        return 0
+    return (d.get("trailingPE") is not None) + bool(d.get("quarters"))
+
+
+def _fresh_yahoo_session():
+    # New cookie jar and connection; yfinance mints a fresh crumb for it on first use.
+    return curl_requests.Session(impersonate="chrome")
 
 
 def _stmt_row(df, *names):
@@ -926,11 +941,11 @@ def _pct_change(new, old):
 @app.get("/api/fundamentals/{ticker}")
 async def get_fundamentals(ticker: str):
     cached = _fund_cache.get(ticker)
-    if cached and time.time() - cached[0] < FUND_TTL_SECONDS:
+    if cached and time.time() < cached[0]:
         return cached[1]
 
-    def _fetch():
-        tkr = yf.Ticker(ticker)
+    def _fetch(session=None):
+        tkr = yf.Ticker(ticker, session=session)
         keys = ["marketCap", "trailingPE", "forwardPE", "priceToBook", "trailingEps", "dividendYield",
                 "revenueGrowth", "profitMargins", "sector", "industry"]
         result = {k: None for k in keys}
@@ -970,14 +985,27 @@ async def get_fundamentals(ticker: str):
                 result["epsYoY"] = _pct_change(latest["eps"], year_ago["eps"])
         return result
 
-    try:
-        data = await asyncio.wait_for(asyncio.to_thread(_fetch), timeout=30)
-    except asyncio.TimeoutError:
-        raise HTTPException(504, "Request timed out fetching fundamentals")
-    except Exception as e:
-        raise HTTPException(502, f"Failed to fetch fundamentals: {str(e)}")
-    if data.get("trailingPE") is not None or data.get("quarters"):
-        _fund_cache[ticker] = (time.time(), data)
+    async def _attempt(session=None):
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(_fetch, session), timeout=20)
+        except Exception:
+            return None
+
+    data = await _attempt()
+    if _fund_score(data) < 2:
+        # yfinance already retried once with its other cookie strategy. When Yahoo rejects the
+        # shared crumb (seen from Render's IPs), a brand-new session is the last cheap attempt.
+        retry = await _attempt(_fresh_yahoo_session())
+        if _fund_score(retry) > _fund_score(data):
+            data = retry
+
+    last_good = cached[1] if cached else None
+    if _fund_score(last_good) > _fund_score(data):
+        return last_good  # stale-but-real beats an empty section
+    if _fund_score(data) == 0:
+        raise HTTPException(502, "Fundamentals unavailable right now")
+    ttl = FUND_TTL_SECONDS if _fund_score(data) == 2 else FUND_PARTIAL_TTL_SECONDS
+    _fund_cache[ticker] = (time.time() + ttl, data)
     return data
 
 
