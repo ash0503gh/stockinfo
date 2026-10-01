@@ -42,6 +42,12 @@
       <!-- Dashboard View -->
       <div id="dashboardView">
 
+      <!-- Shown until the first stock is picked (no data or AI calls before that) -->
+      <div class="welcome" id="welcomeState">
+        <p class="welcome-title">Search any stock to begin</p>
+        <p class="welcome-sub">India &amp; US · type a company name or ticker above</p>
+      </div>
+
       <!-- Ticker identity -->
       <div class="ticker-bar" id="tickerBar" style="display:none;">
         <div class="ticker-identity">
@@ -176,6 +182,10 @@
             <div class="scenario-item">
               <span class="scenario-badge hold-badge">For holders</span>
               <p class="scenario-text" id="scenarioHold">—</p>
+            </div>
+            <div class="scenario-item">
+              <span class="scenario-badge sell-badge">For sellers</span>
+              <p class="scenario-text" id="scenarioSell">—</p>
             </div>
           </div>
         </section>

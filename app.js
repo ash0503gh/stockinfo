@@ -76,7 +76,7 @@ function isFresh(timestamp) {
 
 // ── State ─────────────────────────────────────────────────────────────
 let state = {
-  ticker: "AAPL",
+  ticker: null,
   stockName: "",
   exchange: "",
   currency: "USD",
@@ -688,6 +688,7 @@ async function loadTicker(ticker) {
   state.ticker = ticker;
   state.timeframe = "1y";
   document.querySelectorAll(".tf-btn").forEach(b => b.classList.toggle("active", b.dataset.range === "1y"));
+  el("welcomeState").style.display = "none";
   el("content").style.display = "none";
   el("tickerBar").style.display = "none";
   el("errorBox").style.display = "none";
@@ -930,19 +931,24 @@ function renderKeyLevels() {
   // Smart action scenario advice
   const buyEl = el("scenarioBuy");
   const holdEl = el("scenarioHold");
+  const sellEl = el("scenarioSell");
 
   if (s.stage === 2) {
     buyEl.textContent = `Strong upward trend. Good time to buy if the price breaks above the ceiling at ${currSym(state.currency)}${fmt(s.resistance)}, or if it dips near the floor at ${currSym(state.currency)}${fmt(s.support)}.`;
     holdEl.textContent = `Hold your shares and let profits grow. You can keep a safety exit just under the floor around ${currSym(state.currency)}${fmt(s.support * 0.98)} to protect your gains.`;
+    sellEl.textContent = `No rush to sell while the uptrend holds. Book partial profits near the ceiling at ${currSym(state.currency)}${fmt(s.resistance)}, and exit fully if the price closes below ${currSym(state.currency)}${fmt(s.support * 0.98)}.`;
   } else if (s.stage === 4) {
     buyEl.textContent = `High risk of losing money. Avoid buying new shares until the stock stops falling and stabilizes.`;
     holdEl.textContent = `Selling pressure remains high. Consider selling some shares to protect your capital, or keep a strict safety exit near ${currSym(state.currency)}${fmt(s.resistance)}.`;
+    sellEl.textContent = `Sellers are in control. Use any bounce toward the ceiling at ${currSym(state.currency)}${fmt(s.resistance)} to exit, and don't wait if the price breaks below the floor at ${currSym(state.currency)}${fmt(s.support)}.`;
   } else if (s.stage === 3) {
     buyEl.textContent = `The rally is slowing down near recent highs. Avoid rushing to buy until a clear upward direction resumes.`;
     holdEl.textContent = `Consider locking in some profits. Keep a close safety exit near the floor at ${currSym(state.currency)}${fmt(s.support)}.`;
+    sellEl.textContent = `The rally is losing steam near its highs. Selling part of your position near the ceiling at ${currSym(state.currency)}${fmt(s.resistance)} is reasonable; exit fully if the price closes below the floor at ${currSym(state.currency)}${fmt(s.support)}.`;
   } else {
     buyEl.textContent = `The stock is moving sideways and trying to form a bottom. Wait for the price to clearly break above the ceiling at ${currSym(state.currency)}${fmt(s.resistance)} before buying.`;
     holdEl.textContent = `Hold your current shares if you already own them. Expect the price to bounce between ${currSym(state.currency)}${fmt(s.support)} and ${currSym(state.currency)}${fmt(s.resistance)}.`;
+    sellEl.textContent = `Selling near the bottom of a base often locks in losses. If you need to exit, wait for a bounce toward the ceiling at ${currSym(state.currency)}${fmt(s.resistance)}, and sell if the price breaks below the floor at ${currSym(state.currency)}${fmt(s.support)}.`;
   }
 }
 
@@ -1729,6 +1735,7 @@ async function loadWatchlist(force) {
     wlData = cached.data;
     empty.style.display = "none";
     renderWatchlistTable();
+    loadWatchlistProfits();
     return;
   }
 
@@ -1747,10 +1754,44 @@ async function loadWatchlist(force) {
     wlData = data.results || [];
     wlCache[cacheKey] = { key: tickers.join(","), data: wlData };
     renderWatchlistTable();
+    loadWatchlistProfits();
   } catch (err) {
     loading.style.display = "none";
     grid.innerHTML = `<div class="wl-table-error">Unable to load watchlist data</div>`;
   }
+}
+
+// Latest-quarter profit (PAT) columns come from the 24h-cached fundamentals endpoint and
+// fill in after the rows render, so a slow Yahoo response never blocks the table.
+async function loadWatchlistProfits() {
+  const data = wlData;
+  const pending = data.filter((item) => !item.patLoaded);
+  if (!pending.length) return;
+  await Promise.all(pending.map(async (item) => {
+    try {
+      const r = await fetch(`/api/fundamentals/${encodeURIComponent(item.ticker)}`);
+      const f = r.ok ? await r.json() : null;
+      item.patYoY = f ? f.profitYoY : null;
+      item.patQoQ = f ? f.profitQoQ : null;
+      item.patQuarter = f ? f.latestQuarterEnd : null;
+    } catch {
+      item.patYoY = item.patQoQ = item.patQuarter = null;
+    }
+    item.patLoaded = true;
+  }));
+  if (wlData !== data) return;
+  const wrap = document.querySelector(".wl-table-wrap");
+  const scrollLeft = wrap ? wrap.scrollLeft : 0;
+  renderWatchlistTable();
+  const newWrap = document.querySelector(".wl-table-wrap");
+  if (newWrap) newWrap.scrollLeft = scrollLeft;
+}
+
+// "AVALON.NS" + "NSE" → "Avalon.nse"; "AAPL" + "NASDAQ" → "Aapl.nasdaq"
+function wlStockName(item) {
+  const base = item.ticker.replace(/\.(NS|BO)$/, "");
+  const exch = item.exchange || (item.ticker.endsWith(".NS") ? "NSE" : item.ticker.endsWith(".BO") ? "BSE" : "");
+  return base.charAt(0).toUpperCase() + base.slice(1).toLowerCase() + (exch ? `.${exch.toLowerCase()}` : "");
 }
 
 function sortWatchlist(key) {
@@ -1769,6 +1810,8 @@ function getWlSortVal(item, key) {
     stage: item.stage || 0,
     signal: item.signal === "BUY" ? 1 : item.signal === "HOLD" ? 2 : 3,
     price: item.lastClose || 0,
+    patYoY: item.patYoY ?? -Infinity,
+    patQoQ: item.patQoQ ?? -Infinity,
     yrReturn: item.yrReturn || 0,
     ema10: item.ema10 || 0,
     ema20: item.ema20 || 0,
@@ -1793,39 +1836,55 @@ function renderWatchlistTable() {
     return 0;
   });
 
+  // Most stocks share the same latest quarter; name it once in the header, and only per cell when a stock differs.
+  const qCounts = {};
+  wlData.forEach((i) => { if (i.patQuarter) qCounts[i.patQuarter] = (qCounts[i.patQuarter] || 0) + 1; });
+  const headerQ = Object.keys(qCounts).sort((a, b) => qCounts[b] - qCounts[a] || b.localeCompare(a))[0] || null;
+
   const arrow = (key) => wlSortKey === key ? (wlSortAsc ? " ▲" : " ▼") : "";
+  const qTag = headerQ ? `<span class="wl-th-q">${fmtQuarter(headerQ)}</span>` : "";
   const cols = [
-    { key: "ticker", label: "Company" },
+    { key: "ticker", label: "Stock" },
     { key: "price", label: "Price", num: true },
-    { key: "yrReturn", label: "1 Yr", num: true },
-    { key: "signal", label: "View", num: true },
+    { key: "patYoY", label: "PAT YoY", num: true, tag: qTag },
+    { key: "patQoQ", label: "PAT QoQ", num: true, tag: qTag },
     { key: "stage", label: "Stage" },
     { key: "ema10", label: "10W EMA", num: true },
     { key: "ema20", label: "20W EMA", num: true },
     { key: "ema40", label: "40W EMA", num: true },
+    { key: "yrReturn", label: "1 Yr", num: true },
+    { key: "signal", label: "View", num: true },
   ];
 
   const headerHtml = cols.map(c =>
-    `<th class="wl-th${c.num ? " num" : ""}${wlSortKey === c.key ? " wl-th-active" : ""}" data-sort="${c.key}">${c.label}${arrow(c.key)}</th>`
+    `<th class="wl-th${c.num ? " num" : ""}${wlSortKey === c.key ? " wl-th-active" : ""}" data-sort="${c.key}">${c.label}${arrow(c.key)}${c.tag || ""}</th>`
   ).join("") + `<th class="wl-th wl-th-actions"></th>`;
+
+  const patCell = (item, v, withTag) => {
+    if (!item.patLoaded) return `<td class="wl-td num wl-pat-wait">…</td>`;
+    if (v == null) return `<td class="wl-td num wl-pat-wait">—</td>`;
+    const q = withTag && item.patQuarter && item.patQuarter !== headerQ ? `<span class="wl-pat-q">${fmtQuarter(item.patQuarter)}</span>` : "";
+    return `<td class="wl-td num ${v >= 0 ? "pos" : "neg"}">${signedPct(v)}${q}</td>`;
+  };
 
   const rowsHtml = sorted.map(item => {
     const sig = SIGNAL_META[item.signal] || SIGNAL_META.HOLD;
     const sym = item.currency === "INR" ? "₹" : "$";
     const yrStr = item.yrReturn != null ? `${item.yrReturn >= 0 ? "+" : ""}${Number(item.yrReturn).toFixed(1)}%` : "—";
-    const displayTicker = item.ticker.replace(/\.(NS|BO)$/, "");
-    const name = item.name && item.name !== item.ticker ? item.name : displayTicker;
-    const sub = [displayTicker, item.exchange].filter(Boolean).join(" · ");
+    const stockName = wlStockName(item);
+    const fullName = item.name && item.name !== item.ticker ? item.name : "";
     return `
       <tr class="wl-row" data-ticker="${escapeHtml(item.ticker)}">
-        <td class="wl-td wl-td-ticker"><a data-view="${escapeHtml(item.ticker)}" title="${escapeHtml(name)}">${escapeHtml(name)}</a><div class="wl-co-sub">${escapeHtml(sub)}</div></td>
+        <td class="wl-td wl-td-ticker"><a data-view="${escapeHtml(item.ticker)}" title="${escapeHtml(fullName || stockName)}">${escapeHtml(stockName)}</a>${fullName ? `<div class="wl-co-sub">${escapeHtml(fullName)}</div>` : ""}</td>
         <td class="wl-td num">${sym}${fmt(item.lastClose)}</td>
-        <td class="wl-td num ${item.yrReturn >= 0 ? "pos" : "neg"}">${yrStr}</td>
-        <td class="wl-td num"><span class="wl-view ${sig.cls}">${sig.word}</span></td>
+        ${patCell(item, item.patYoY, item.patYoY != null)}
+        ${patCell(item, item.patQoQ, item.patYoY == null)}
         <td class="wl-td"><span class="wl-stage-badge wl-stage-${item.stage || 1}">${ROMAN[item.stage] || "—"} · ${escapeHtml(item.stageLabel || "—")}</span></td>
         <td class="wl-td wl-td-ema num">${fmtEma(item.ema10 || 0, item.ema10Pct || 0, sym)}</td>
         <td class="wl-td wl-td-ema num">${fmtEma(item.ema20 || 0, item.ema20Pct || 0, sym)}</td>
         <td class="wl-td wl-td-ema num">${fmtEma(item.ema40 || 0, item.ema40Pct || 0, sym)}</td>
+        <td class="wl-td num ${item.yrReturn >= 0 ? "pos" : "neg"}">${yrStr}</td>
+        <td class="wl-td num"><span class="wl-view ${sig.cls}">${sig.word}</span></td>
         <td class="wl-td wl-td-actions">
           <button class="wl-remove-btn" data-remove="${escapeHtml(item.ticker)}" title="Remove">✕</button>
         </td>
@@ -1852,5 +1911,7 @@ function renderWatchlistTable() {
 }
 
 // ── Initialize App ────────────────────────────────────────────────────
+// No stock is preloaded: every load triggers a paid AI analysis, so wait for the user to pick one.
 renderMastDate();
-loadTicker(state.ticker);
+showToast("Explore or search your stock");
+if (window.matchMedia("(pointer: fine)").matches) searchInput.focus();

@@ -972,12 +972,14 @@ async def get_fundamentals(ticker: str):
         latest = next((s for s in quarters if not s["missing"]), None)
         result["latestQuarterEnd"] = latest["end"] if latest else None
         result["resultsStale"] = None
-        result["revenueYoY"] = result["profitYoY"] = result["epsYoY"] = None
+        result["revenueYoY"] = result["profitYoY"] = result["epsYoY"] = result["profitQoQ"] = None
         if latest:
             age_days = (datetime.now().date() - datetime.strptime(latest["end"], "%Y-%m-%d").date()).days
             result["resultsStale"] = age_days > STALE_RESULTS_DAYS
             result["resultsAgeMonths"] = round(age_days / 30.4)
             i = quarters.index(latest)
+            if i + 1 < len(quarters) and not quarters[i + 1]["missing"]:
+                result["profitQoQ"] = _pct_change(latest["netProfit"], quarters[i + 1]["netProfit"])
             if i + 4 < len(quarters):
                 year_ago = quarters[i + 4]
                 result["revenueYoY"] = _pct_change(latest["revenue"], year_ago["revenue"])

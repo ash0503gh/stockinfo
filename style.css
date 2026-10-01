@@ -282,6 +282,11 @@ button { font-family: inherit; }
 }
 
 #content { display: none; flex-direction: column; gap: 0; }
+
+/* ── Welcome (before the first stock is picked) ─────────────────────── */
+.welcome { padding: 72px 0 56px; text-align: center; }
+.welcome-title { font: italic 400 26px/1.25 var(--serif); color: var(--ink); }
+.welcome-sub { font-size: 13px; color: var(--mute); margin-top: 8px; }
 .card { animation: fadeUp 0.35s ease both; }
 
 /* ── Section labels ─────────────────────────────────────────────────── */
@@ -634,7 +639,7 @@ button { font-family: inherit; }
   color: var(--ink-2);
 }
 .rr-line b { font: 600 17px var(--serif); margin-left: 6px; color: var(--ink); }
-.action-scenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 16px; }
+.action-scenarios { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 16px; }
 .scenario-badge {
   display: block;
   margin-bottom: 4px;
@@ -833,6 +838,7 @@ footer {
   text-transform: uppercase;
   color: var(--mute);
   border-bottom: 1px solid var(--ink);
+  vertical-align: bottom;
   cursor: pointer;
   user-select: none;
   transition: color 0.15s ease;
@@ -869,7 +875,10 @@ footer {
 }
 .wl-td-ticker a:hover { text-decoration: underline; text-decoration-color: var(--brass); text-underline-offset: 3px; }
 .wl-co-sub {
+  max-width: 190px;
   margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.08em;
@@ -877,6 +886,9 @@ footer {
   color: var(--mute);
 }
 .wl-view { font: italic 500 15px var(--serif); }
+.wl-th-q { display: block; margin-top: 2px; font-size: 9px; letter-spacing: 0.1em; color: var(--faint); }
+.wl-pat-q { margin-left: 5px; font-size: 10.5px; color: var(--faint); }
+.wl-td.wl-pat-wait { color: var(--faint); }
 .wl-stage-badge { font: italic 400 14px var(--serif); }
 .wl-stage-1 { color: var(--mute); }
 .wl-stage-2 { color: var(--forest); }
@@ -921,7 +933,9 @@ footer {
   .fund-table td { font-size: 13px; }
   .action-scenarios { grid-template-columns: 1fr; gap: 14px; }
   .timeframe-row { gap: 14px; }
-  .wl-td-ticker a { max-width: 150px; font-size: 16px; }
+  .wl-td-ticker a, .wl-co-sub { max-width: 124px; }
+  .wl-td-ticker a { font-size: 16px; }
+  .wl-th, .wl-td { padding-right: 10px; }
   footer { font-size: 12px; }
 }
 
