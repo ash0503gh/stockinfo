@@ -77,6 +77,7 @@ function isFresh(timestamp) {
 // ── State ─────────────────────────────────────────────────────────────
 let state = {
   ticker: null,
+  position: null,
   stockName: "",
   exchange: "",
   currency: "USD",
@@ -691,6 +692,8 @@ async function loadTicker(ticker) {
   el("welcomeState").style.display = "none";
   el("posPrice").value = ""; // positions are never saved: a new stock starts blank
   el("posQty").value = "";
+  el("posGoBtn").disabled = true;
+  state.position = null;
   el("content").style.display = "none";
   el("tickerBar").style.display = "none";
   el("errorBox").style.display = "none";
@@ -795,7 +798,6 @@ function renderAllUI() {
   renderStats();
   renderStageCard();
   renderKeyLevels();
-  renderPosition();
   renderFundamentals();
   initTimeframeButtons();
   renderPriceChart();
@@ -931,10 +933,13 @@ function renderKeyLevels() {
 
   el("riskRewardBadge").innerHTML = `Risk to reward <b>1 : ${escapeHtml(String(s.riskReward))}</b>`;
 
-  // Smart action scenario advice
+  // Smart action scenario advice (general; a confirmed personal plan overrides it below)
   const buyEl = el("scenarioBuy");
   const holdEl = el("scenarioHold");
   const sellEl = el("scenarioSell");
+  document.querySelector(".buy-badge").textContent = "For buyers";
+  document.querySelector(".hold-badge").textContent = "For holders";
+  document.querySelector(".sell-badge").textContent = "For sellers";
 
   if (s.stage === 2) {
     buyEl.textContent = `Strong upward trend. Good time to buy if the price breaks above the ceiling at ${currSym(state.currency)}${fmt(s.resistance)}, or if it dips near the floor at ${currSym(state.currency)}${fmt(s.support)}.`;
@@ -953,12 +958,13 @@ function renderKeyLevels() {
     holdEl.textContent = `Hold your current shares if you already own them. Expect the price to bounce between ${currSym(state.currency)}${fmt(s.support)} and ${currSym(state.currency)}${fmt(s.resistance)}.`;
     sellEl.textContent = `Selling near the bottom of a base often locks in losses. If you need to exit, wait for a bounce toward the ceiling at ${currSym(state.currency)}${fmt(s.resistance)}, and sell if the price breaks below the floor at ${currSym(state.currency)}${fmt(s.support)}.`;
   }
+  renderPositionPlan();
 }
 
 // ── Your Position (personal plan from purchase price + shares; never saved) ──
 function positionMoney(v, currency) {
   const abs = Math.round(Math.abs(v)).toLocaleString(currency === "INR" ? "en-IN" : "en-US");
-  return `${v < 0 ? "−" : "+"}⁠${currSym(currency)}${abs}`; // word joiner keeps the sign on the same line
+  return `${v < 0 ? "−" : "+"}\u2060${currSym(currency)}${abs}`; // word joiner keeps the sign on the same line
 }
 
 function positionLines(stage, p) {
@@ -1009,21 +1015,22 @@ function positionLines(stage, p) {
   };
 }
 
-function renderPosition() {
-  const card = el("positionCard");
+// The plan is computed only from numbers confirmed with "Show my plan" (state.position);
+// it replaces the general For buyers / holders / sellers lines in place.
+function renderPositionPlan() {
+  const out = el("positionResult");
+  const aiWrap = el("posAiWrap");
   const s = state.stageData;
   const price = state._stats && state._stats.lastClose;
-  if (!s || !price) { card.style.display = "none"; return; }
-  card.style.display = "block";
-
-  const out = el("positionResult");
-  const cost = parseFloat(el("posPrice").value);
-  const qty = parseFloat(el("posQty").value);
-  if (!(cost > 0) || !(qty > 0)) {
-    out.innerHTML = `<p class="pos-hint">Enter your average purchase price and number of shares to see your personal plan.</p>`;
+  const pos = state.position;
+  if (!pos || !s || !price) {
+    out.innerHTML = "";
+    aiWrap.style.display = "none";
+    el("posAiOut").innerHTML = "";
     return;
   }
 
+  const { cost, qty } = pos;
   const cur = state.currency;
   const sym = currSym(cur);
   const loc = cur === "INR" ? "en-IN" : "en-US";
@@ -1044,26 +1051,57 @@ function renderPosition() {
   const lines = positionLines(s.stage, p);
 
   out.innerHTML = `
+    <div class="pos-head"><span>Your plan · ${qty.toLocaleString()} shares @ ${px(cost)}</span><button class="pos-clear" id="posClear">Clear</button></div>
     <div class="pos-now"><span class="stat-label">Profit / loss now</span><span class="v ${tone(pnl)}">${money(pnl)}<small>${pct(p.pnlPct)}</small></span></div>
     <div class="pos-sub">Invested ${sym}${Math.round(cost * qty).toLocaleString(loc)} · Value now ${sym}${Math.round(price * qty).toLocaleString(loc)}</div>
     <div class="pos-row"><span>If it reaches the ceiling ${px(ceil)}</span><b class="${tone(p.atCeil)}">${money(p.atCeil)} (${pct(p.ceilPct)})</b></div>
-    <div class="pos-row"><span>If it falls to the exit ${px(exitAt)}</span><b class="${tone(p.atExit)}">${money(p.atExit)} (${pct(p.exitPct)})</b></div>
-    <div class="pos-plan">
-      <div><span class="scenario-badge">Holding</span><p class="scenario-text">${lines.hold}</p></div>
-      <div><span class="scenario-badge">Buy more</span><p class="scenario-text">${lines.add}</p></div>
-      <div><span class="scenario-badge">Selling</span><p class="scenario-text">${lines.sell}</p></div>
-    </div>
-    <div class="pos-ai">
-      <button class="pos-ai-btn" id="posAiBtn">Get my AI advice</button><span class="pos-ai-note">One AI call per tap</span>
-      <div id="posAiOut"></div>
-    </div>`;
-  el("posAiBtn").addEventListener("click", () => runPositionAi(cost, qty));
+    <div class="pos-row"><span>If it falls to the exit ${px(exitAt)}</span><b class="${tone(p.atExit)}">${money(p.atExit)} (${pct(p.exitPct)})</b></div>`;
+  el("posClear").addEventListener("click", clearPosition);
+
+  document.querySelector(".buy-badge").textContent = "Buy more";
+  document.querySelector(".hold-badge").textContent = "Holding";
+  document.querySelector(".sell-badge").textContent = "Selling";
+  el("scenarioBuy").textContent = lines.add;
+  el("scenarioHold").textContent = lines.hold;
+  el("scenarioSell").textContent = lines.sell;
+  aiWrap.style.display = "block";
 }
 
-async function runPositionAi(cost, qty) {
+function positionInputs() {
+  const cost = parseFloat(el("posPrice").value);
+  const qty = parseFloat(el("posQty").value);
+  return { cost, qty, valid: cost > 0 && qty > 0 };
+}
+
+function showMyPlan() {
+  const { cost, qty, valid } = positionInputs();
+  if (!valid) return;
+  state.position = { cost, qty };
+  el("posAiOut").innerHTML = "";
+  renderKeyLevels();
+}
+
+// Editing the numbers drops the confirmed plan; the general lines return until "Show my plan" again.
+function onPositionInput() {
+  if (state.position) {
+    state.position = null;
+    renderKeyLevels();
+  }
+  el("posGoBtn").disabled = !positionInputs().valid;
+}
+
+function clearPosition() {
+  el("posPrice").value = "";
+  el("posQty").value = "";
+  onPositionInput();
+}
+
+async function runPositionAi() {
+  const pos = state.position;
+  if (!pos) return;
+  const { cost, qty } = pos;
   const btn = el("posAiBtn");
   const out = el("posAiOut");
-  const ticker = state.ticker;
   const s = state.stageData;
   btn.disabled = true;
   btn.textContent = "Asking AI…";
@@ -1073,7 +1111,7 @@ async function runPositionAi(cost, qty) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ticker, currency: state.currency, currentPrice: state._stats.lastClose,
+        ticker: state.ticker, currency: state.currency, currentPrice: state._stats.lastClose,
         purchasePrice: cost, shares: qty,
         stage: s.stage, stageLabel: s.stageLabel, support: s.support, resistance: s.resistance,
         signal: state.analysis ? state.analysis.signal : s.signal,
@@ -1081,18 +1119,24 @@ async function runPositionAi(cost, qty) {
     });
     if (!res.ok) throw new Error(res.status === 503 ? "AI advice isn't available right now." : "Couldn't get AI advice. Please try again.");
     const a = await res.json();
-    if (state.ticker !== ticker || !document.body.contains(out)) return; // stock or inputs changed meanwhile
+    if (state.position !== pos) return; // plan cleared, edited or stock switched meanwhile
     out.innerHTML = `
       <div class="pos-ai-out"><h4>${escapeHtml(a.headline)}</h4><p>${escapeHtml(a.plan)}</p><p class="watch">${escapeHtml(a.watch)}</p></div>
       <div class="ai-source-line"><span class="ai-source-dot"></span>AI-powered · Not financial advice</div>`;
   } catch (e) {
-    if (document.body.contains(out)) out.innerHTML = `<p class="pos-ai-err">${escapeHtml(e.message || "Couldn't get AI advice.")}</p>`;
+    if (state.position === pos) out.innerHTML = `<p class="pos-ai-err">${escapeHtml(e.message || "Couldn't get AI advice.")}</p>`;
   } finally {
-    if (document.body.contains(btn)) { btn.disabled = false; btn.textContent = "Get my AI advice"; }
+    btn.disabled = false;
+    btn.textContent = "Get my AI advice";
   }
 }
 
-["posPrice", "posQty"].forEach((id) => el(id).addEventListener("input", renderPosition));
+["posPrice", "posQty"].forEach((id) => {
+  el(id).addEventListener("input", onPositionInput);
+  el(id).addEventListener("keydown", (e) => { if (e.key === "Enter") showMyPlan(); });
+});
+el("posGoBtn").addEventListener("click", showMyPlan);
+el("posAiBtn").addEventListener("click", runPositionAi);
 
 // ── Monthly Aggregation & Calendar-Days Accurate Stats ────────────────
 function getMonthlyData(history) {
