@@ -689,6 +689,8 @@ async function loadTicker(ticker) {
   state.timeframe = "1y";
   document.querySelectorAll(".tf-btn").forEach(b => b.classList.toggle("active", b.dataset.range === "1y"));
   el("welcomeState").style.display = "none";
+  el("posPrice").value = ""; // positions are never saved: a new stock starts blank
+  el("posQty").value = "";
   el("content").style.display = "none";
   el("tickerBar").style.display = "none";
   el("errorBox").style.display = "none";
@@ -793,6 +795,7 @@ function renderAllUI() {
   renderStats();
   renderStageCard();
   renderKeyLevels();
+  renderPosition();
   renderFundamentals();
   initTimeframeButtons();
   renderPriceChart();
@@ -951,6 +954,145 @@ function renderKeyLevels() {
     sellEl.textContent = `Selling near the bottom of a base often locks in losses. If you need to exit, wait for a bounce toward the ceiling at ${currSym(state.currency)}${fmt(s.resistance)}, and sell if the price breaks below the floor at ${currSym(state.currency)}${fmt(s.support)}.`;
   }
 }
+
+// ── Your Position (personal plan from purchase price + shares; never saved) ──
+function positionMoney(v, currency) {
+  const abs = Math.round(Math.abs(v)).toLocaleString(currency === "INR" ? "en-IN" : "en-US");
+  return `${v < 0 ? "−" : "+"}⁠${currSym(currency)}${abs}`; // word joiner keeps the sign on the same line
+}
+
+function positionLines(stage, p) {
+  const { px, money, cash, cost, floor, ceil, exitAt, pnlPct, atCeil, atExit, ceilPct, qty } = p;
+  const up = pnlPct >= 0;
+  const by = `${Math.abs(pnlPct).toFixed(1)}%`;
+  const sellN = qty >= 2 ? Math.floor(qty / 2) : qty;
+  const sellWhat = `${sellN.toLocaleString()} share${sellN === 1 ? "" : "s"}`;
+  if (stage === 2) {
+    return {
+      hold: up
+        ? (cost > exitAt
+          ? `You're up ${by} in a Stage II uptrend. Hold, and raise your exit to ${px(cost)} (your cost) so this trade can't turn into a loss.`
+          : `You're up ${by} in a Stage II uptrend. Hold; even your exit at ${px(exitAt)} locks in ${money(atExit)}.`)
+        : `You're down ${by}, but the trend is up. Holding is reasonable while the price stays above ${px(exitAt)}; a close below it would mean ${money(atExit)}.`,
+      add: `Buying ${qty.toLocaleString()} more near the floor at ${px(floor)} would make your average ${px((cost + floor) / 2)}.`,
+      sell: ceil > cost
+        ? `Selling ${sellWhat} near the ceiling at ${px(ceil)} would book about ${cash((ceil - cost) * sellN)} in profit; keep the rest with your exit at ${px(Math.max(exitAt, cost))}.`
+        : `Even at the ceiling (${px(ceil)}) you'd be down ${Math.abs(ceilPct).toFixed(1)}%; selling there would cut the loss to ${money(atCeil)}.`,
+    };
+  }
+  if (stage === 3) {
+    return {
+      hold: up
+        ? `You're up ${by}, but momentum is fading near the highs. Protect it with an exit at the floor ${px(floor)}, which would leave you ${money(atExit)}.`
+        : `You're down ${by} and the rally is stalling. Set a firm exit at the floor ${px(floor)}; that caps the result at ${money(atExit)}.`,
+      add: `Not a good time to add while the rally stalls. Wait for a clear new uptrend before buying more.`,
+      sell: ceil > cost
+        ? `Selling ${sellWhat} near ${px(ceil)} would lock in about ${cash((ceil - cost) * sellN)} in profit; sell the rest if the price closes below ${px(floor)}.`
+        : `If the price closes below ${px(floor)}, selling limits the result to ${money(atExit)}.`,
+    };
+  }
+  if (stage === 4) {
+    return {
+      hold: up
+        ? `You're still up ${by}, but sellers are in control. Exit if the price breaks below ${px(floor)}, which would leave you ${money(atExit)}.`
+        : `You're down ${by} in a downtrend, and losses can grow from here. A break below ${px(floor)} would take it to ${money(atExit)}.`,
+      add: `Avoid averaging down in a downtrend; buying more now adds to a falling position.`,
+      sell: `Use any bounce toward ${px(ceil)} to exit (${money(atCeil)} at that price); don't wait if the price breaks below ${px(floor)} (${money(atExit)}).`,
+    };
+  }
+  return {
+    hold: up
+      ? `You're up ${by} while the stock moves sideways. Holding is fine; exit if it breaks below ${px(floor)} (${money(atExit)}).`
+      : `You're down ${by} while the stock tries to form a base. Give it room above ${px(floor)}; a break below would make it ${money(atExit)}.`,
+    add: `Wait for a breakout above the ceiling at ${px(ceil)} before adding; averaging down inside a base can tie up money for a long time.`,
+    sell: `If you need to exit, a bounce toward ${px(ceil)} gets a better price (${money(atCeil)}); sell if it breaks below ${px(floor)}.`,
+  };
+}
+
+function renderPosition() {
+  const card = el("positionCard");
+  const s = state.stageData;
+  const price = state._stats && state._stats.lastClose;
+  if (!s || !price) { card.style.display = "none"; return; }
+  card.style.display = "block";
+
+  const out = el("positionResult");
+  const cost = parseFloat(el("posPrice").value);
+  const qty = parseFloat(el("posQty").value);
+  if (!(cost > 0) || !(qty > 0)) {
+    out.innerHTML = `<p class="pos-hint">Enter your average purchase price and number of shares to see your personal plan.</p>`;
+    return;
+  }
+
+  const cur = state.currency;
+  const sym = currSym(cur);
+  const loc = cur === "INR" ? "en-IN" : "en-US";
+  const px = (v) => `${sym}${fmt(v)}`;
+  const money = (v) => positionMoney(v, cur);
+  const pct = (v) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}%`;
+  const tone = (v) => v >= 0 ? "pos" : "neg";
+  const floor = s.support, ceil = s.resistance;
+  const exitAt = s.stage === 2 ? floor * 0.98 : floor; // same exit levels as the general advice above
+  const cash = (v) => `${sym}${Math.round(Math.abs(v)).toLocaleString(loc)}`;
+  const p = {
+    px, money, cash, cost, floor, ceil, exitAt, qty,
+    pnlPct: (price - cost) / cost * 100,
+    atCeil: (ceil - cost) * qty, ceilPct: (ceil - cost) / cost * 100,
+    atExit: (exitAt - cost) * qty, exitPct: (exitAt - cost) / cost * 100,
+  };
+  const pnl = (price - cost) * qty;
+  const lines = positionLines(s.stage, p);
+
+  out.innerHTML = `
+    <div class="pos-now"><span class="stat-label">Profit / loss now</span><span class="v ${tone(pnl)}">${money(pnl)}<small>${pct(p.pnlPct)}</small></span></div>
+    <div class="pos-sub">Invested ${sym}${Math.round(cost * qty).toLocaleString(loc)} · Value now ${sym}${Math.round(price * qty).toLocaleString(loc)}</div>
+    <div class="pos-row"><span>If it reaches the ceiling ${px(ceil)}</span><b class="${tone(p.atCeil)}">${money(p.atCeil)} (${pct(p.ceilPct)})</b></div>
+    <div class="pos-row"><span>If it falls to the exit ${px(exitAt)}</span><b class="${tone(p.atExit)}">${money(p.atExit)} (${pct(p.exitPct)})</b></div>
+    <div class="pos-plan">
+      <div><span class="scenario-badge">Holding</span><p class="scenario-text">${lines.hold}</p></div>
+      <div><span class="scenario-badge">Buy more</span><p class="scenario-text">${lines.add}</p></div>
+      <div><span class="scenario-badge">Selling</span><p class="scenario-text">${lines.sell}</p></div>
+    </div>
+    <div class="pos-ai">
+      <button class="pos-ai-btn" id="posAiBtn">Get my AI advice</button><span class="pos-ai-note">One AI call per tap</span>
+      <div id="posAiOut"></div>
+    </div>`;
+  el("posAiBtn").addEventListener("click", () => runPositionAi(cost, qty));
+}
+
+async function runPositionAi(cost, qty) {
+  const btn = el("posAiBtn");
+  const out = el("posAiOut");
+  const ticker = state.ticker;
+  const s = state.stageData;
+  btn.disabled = true;
+  btn.textContent = "Asking AI…";
+  out.innerHTML = "";
+  try {
+    const res = await fetch("/api/position-advice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ticker, currency: state.currency, currentPrice: state._stats.lastClose,
+        purchasePrice: cost, shares: qty,
+        stage: s.stage, stageLabel: s.stageLabel, support: s.support, resistance: s.resistance,
+        signal: state.analysis ? state.analysis.signal : s.signal,
+      }),
+    });
+    if (!res.ok) throw new Error(res.status === 503 ? "AI advice isn't available right now." : "Couldn't get AI advice. Please try again.");
+    const a = await res.json();
+    if (state.ticker !== ticker || !document.body.contains(out)) return; // stock or inputs changed meanwhile
+    out.innerHTML = `
+      <div class="pos-ai-out"><h4>${escapeHtml(a.headline)}</h4><p>${escapeHtml(a.plan)}</p><p class="watch">${escapeHtml(a.watch)}</p></div>
+      <div class="ai-source-line"><span class="ai-source-dot"></span>AI-powered · Not financial advice</div>`;
+  } catch (e) {
+    if (document.body.contains(out)) out.innerHTML = `<p class="pos-ai-err">${escapeHtml(e.message || "Couldn't get AI advice.")}</p>`;
+  } finally {
+    if (document.body.contains(btn)) { btn.disabled = false; btn.textContent = "Get my AI advice"; }
+  }
+}
+
+["posPrice", "posQty"].forEach((id) => el(id).addEventListener("input", renderPosition));
 
 // ── Monthly Aggregation & Calendar-Days Accurate Stats ────────────────
 function getMonthlyData(history) {
@@ -1875,7 +2017,7 @@ function renderWatchlistTable() {
     const fullName = item.name && item.name !== item.ticker ? item.name : "";
     return `
       <tr class="wl-row" data-ticker="${escapeHtml(item.ticker)}">
-        <td class="wl-td wl-td-ticker"><a data-view="${escapeHtml(item.ticker)}" title="${escapeHtml(fullName || stockName)}">${escapeHtml(stockName)}</a>${fullName ? `<div class="wl-co-sub">${escapeHtml(fullName)}</div>` : ""}</td>
+        <td class="wl-td wl-td-ticker"><a data-view="${escapeHtml(item.ticker)}" title="${escapeHtml(fullName || stockName)}">${escapeHtml(stockName)}</a></td>
         <td class="wl-td num">${sym}${fmt(item.lastClose)}</td>
         ${patCell(item, item.patYoY, item.patYoY != null)}
         ${patCell(item, item.patQoQ, item.patYoY == null)}

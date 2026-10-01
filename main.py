@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 import xml.etree.ElementTree as ET
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import pandas as pd
 from typesafe_sdk import AsyncTypeSafeClient, Choice, Noul, Score
@@ -872,6 +872,63 @@ Include 5-7 factors."""
         raise HTTPException(502, "Unexpected Gemini response format")
     except httpx.TimeoutException:
         raise HTTPException(504, "Gemini request timed out")
+
+
+# ── Personal position advice (one Gemini call, only when the user taps) ──
+
+class PositionAdviceRequest(BaseModel):
+    ticker: str
+    currency: str = "USD"
+    currentPrice: float = Field(gt=0)
+    purchasePrice: float = Field(gt=0)
+    shares: float = Field(gt=0)
+    stage: Optional[int] = None
+    stageLabel: Optional[str] = None
+    support: Optional[float] = None
+    resistance: Optional[float] = None
+    signal: Optional[str] = None
+
+
+@app.post("/api/position-advice")
+async def position_advice(req: PositionAdviceRequest):
+    if not GEMINI_API_KEY:
+        raise HTTPException(503, "Gemini API key not configured")
+
+    cur = req.currency
+    pnl_pct = (req.currentPrice - req.purchasePrice) / req.purchasePrice * 100
+    pnl_total = (req.currentPrice - req.purchasePrice) * req.shares
+    levels = []
+    if req.support is not None:
+        levels.append(f"price floor (support) {cur} {req.support:.2f}")
+    if req.resistance is not None:
+        levels.append(f"price ceiling (resistance) {cur} {req.resistance:.2f}")
+    stage = f"Stage {req.stage} ({req.stageLabel})" if req.stage else "unknown"
+
+    prompt = f"""You are a clear, careful advisor for everyday retail investors. Write a short personal plan for this holding in simple English with no jargon. Return ONLY valid JSON (no markdown, no backticks).
+
+Holding: {req.shares:g} shares of {req.ticker}, average cost {cur} {req.purchasePrice:.2f}.
+Current price: {cur} {req.currentPrice:.2f} ({pnl_pct:+.1f}% vs their cost; total {'profit' if pnl_total >= 0 else 'loss'} {cur} {abs(pnl_total):,.0f}).
+Market stage: {stage}. Key levels: {', '.join(levels) or 'unknown'}. Technical signal: {req.signal or 'unknown'}.
+
+Return this exact JSON schema:
+{{"headline": "<6-10 words>", "plan": "<2-3 sentences: whether to hold, add or sell, using their cost and the key levels>", "watch": "<1 sentence: the one price that should change their plan>"}}"""
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1024, "responseMimeType": "application/json"},
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(f"{GEMINI_URL}?key={GEMINI_API_KEY}", json=payload, timeout=30)
+        if r.status_code != 200:
+            raise HTTPException(502, f"Gemini API error: {r.status_code}")
+        text = r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        advice = json.loads(text)
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Gemini request timed out")
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+        raise HTTPException(502, "Unexpected Gemini response")
+    return {k: str(advice.get(k, "")).strip() for k in ("headline", "plan", "watch")}
 
 
 # ── Fundamentals ──────────────────────────────────────────────────────

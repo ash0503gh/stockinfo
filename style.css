@@ -651,6 +651,53 @@ button { font-family: inherit; }
 }
 .scenario-text { font-size: 14px; line-height: 1.6; color: var(--ink-2); }
 
+/* ── Your position ──────────────────────────────────────────────────── */
+.pos-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.pos-field { display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--rule); transition: border-color 0.2s ease; }
+.pos-field:focus-within { border-bottom-color: var(--ink); }
+.pos-field input {
+  width: 100%;
+  padding: 4px 0 8px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: 400 22px var(--serif);
+  font-variant-numeric: lining-nums tabular-nums;
+  color: var(--ink);
+}
+.pos-field input::placeholder { font-style: italic; color: var(--faint); }
+.pos-field input::-webkit-outer-spin-button, .pos-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pos-field input[type="number"] { -moz-appearance: textfield; }
+.pos-hint { font: italic 400 14.5px var(--serif); color: var(--mute); margin-top: 14px; }
+.pos-now { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 18px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
+.pos-now .v { font: 400 28px var(--serif); font-variant-numeric: lining-nums tabular-nums; white-space: nowrap; }
+.pos-now .v small { font: 500 14px var(--sans); margin-left: 6px; }
+.pos-sub { font-size: 12px; color: var(--mute); margin-top: 6px; }
+.pos-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 0 8px; border-bottom: 1px solid var(--rule-soft); font-size: 13.5px; color: var(--ink-2); }
+.pos-row b { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pos-plan { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 16px; }
+.pos-ai { margin-top: 18px; }
+.pos-ai-btn {
+  background: none;
+  border: 1px solid var(--ink);
+  padding: 9px 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.pos-ai-btn:hover { background: var(--ink); color: var(--paper); }
+.pos-ai-btn:disabled { opacity: 0.5; cursor: default; background: none; color: var(--ink); }
+.pos-ai-note { font-size: 11.5px; color: var(--mute); margin-left: 10px; }
+.pos-ai-out { margin-top: 14px; padding-left: 14px; border-left: 2px solid var(--brass); }
+.pos-ai-out h4 { font: 500 19px/1.25 var(--serif); color: var(--ink); }
+.pos-ai-out p { font-size: 14px; line-height: 1.6; color: var(--ink-2); margin-top: 6px; }
+.pos-ai-out .watch { font: italic 400 15px/1.45 var(--serif); color: var(--ink); }
+.pos-ai-err { font-size: 13px; color: var(--oxblood); margin-top: 10px; }
+
 /* ── Factors ────────────────────────────────────────────────────────── */
 .factor-item { padding: 14px 0; border-bottom: 1px solid var(--rule-soft); animation: fadeUp 0.35s ease both; }
 .factor-item:first-child { padding-top: 0; }
@@ -874,17 +921,6 @@ footer {
   cursor: pointer;
 }
 .wl-td-ticker a:hover { text-decoration: underline; text-decoration-color: var(--brass); text-underline-offset: 3px; }
-.wl-co-sub {
-  max-width: 190px;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--mute);
-}
 .wl-view { font: italic 500 15px var(--serif); }
 .wl-th-q { display: block; margin-top: 2px; font-size: 9px; letter-spacing: 0.1em; color: var(--faint); }
 .wl-pat-q { margin-left: 5px; font-size: 10.5px; color: var(--faint); }
@@ -932,8 +968,10 @@ footer {
   .fund-vals .v { font-size: 19px; }
   .fund-table td { font-size: 13px; }
   .action-scenarios { grid-template-columns: 1fr; gap: 14px; }
+  .pos-plan { grid-template-columns: 1fr; gap: 14px; }
+  .pos-now .v { font-size: 24px; }
   .timeframe-row { gap: 14px; }
-  .wl-td-ticker a, .wl-co-sub { max-width: 124px; }
+  .wl-td-ticker a { max-width: 124px; }
   .wl-td-ticker a { font-size: 16px; }
   .wl-th, .wl-td { padding-right: 10px; }
   footer { font-size: 12px; }

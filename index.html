@@ -190,6 +190,22 @@
           </div>
         </section>
 
+        <!-- Your position: personal plan from the user's purchase price + shares (never saved) -->
+        <section class="card position-card" id="positionCard" style="display:none;">
+          <div class="section-label">Your Position</div>
+          <div class="pos-inputs">
+            <label class="pos-field">
+              <span class="stat-label">Avg. purchase price</span>
+              <input id="posPrice" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 1950" autocomplete="off" />
+            </label>
+            <label class="pos-field">
+              <span class="stat-label">No. of shares</span>
+              <input id="posQty" type="number" inputmode="numeric" min="0" step="1" placeholder="e.g. 50" autocomplete="off" />
+            </label>
+          </div>
+          <div id="positionResult"></div>
+        </section>
+
         <!-- Monthly volume -->
         <section class="card chart-card">
           <div class="section-label">Monthly Volume</div>
