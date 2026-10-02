@@ -943,27 +943,63 @@ Return this exact JSON schema:
 {{"headline": "<6-10 words naming the action>", "plan": "<2-3 sentences with exact prices and amounts>", "watch": "<1 sentence: the single price that changes the plan, and what to do then>"}}"""
 
 
+def _json_object(text: str) -> dict | None:
+    """Parse a JSON object from model text, tolerating code fences or stray text around it."""
+    text = (text or "").strip()
+    candidates = [text]
+    start, end = text.find("{"), text.rfind("}")
+    if 0 <= start < end:
+        candidates.append(text[start:end + 1])
+    for c in candidates:
+        try:
+            obj = json.loads(c)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
+async def _gemini_json(prompt: str, temperature: float, max_tokens: int, attempts: int = 2) -> dict:
+    """Ask Gemini for a JSON object. Retries once on a transient API error, a timeout, or an
+    unreadable reply (e.g. the model's thinking used up the token budget so no text came back)."""
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens, "responseMimeType": "application/json"},
+    }
+    error = (502, "Unexpected Gemini response")
+    for attempt in range(1, attempts + 1):
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.post(f"{GEMINI_URL}?key={GEMINI_API_KEY}", json=payload, timeout=30)
+        except httpx.TimeoutException:
+            error = (504, "Gemini request timed out")
+            continue
+        if r.status_code in (429, 500, 502, 503, 504):
+            error = (502, f"Gemini API error: {r.status_code}")
+            continue
+        if r.status_code != 200:
+            raise HTTPException(502, f"Gemini API error: {r.status_code}")
+        try:
+            candidate = (r.json().get("candidates") or [{}])[0]
+        except ValueError:
+            candidate = {}
+        parts = (candidate.get("content") or {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+        obj = _json_object(text)
+        if obj is not None:
+            return obj
+        print(f"Gemini reply unreadable on attempt {attempt}: finishReason={candidate.get('finishReason')}, {len(text)} chars")
+    raise HTTPException(*error)
+
+
 @app.post("/api/position-advice")
 async def position_advice(req: PositionAdviceRequest):
     if not GEMINI_API_KEY:
         raise HTTPException(503, "Gemini API key not configured")
-
-    payload = {
-        "contents": [{"parts": [{"text": _position_prompt(req)}]}],
-        # Low temperature: the same position should get the same, specific advice.
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024, "responseMimeType": "application/json"},
-    }
-    try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(f"{GEMINI_URL}?key={GEMINI_API_KEY}", json=payload, timeout=30)
-        if r.status_code != 200:
-            raise HTTPException(502, f"Gemini API error: {r.status_code}")
-        text = r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-        advice = json.loads(text)
-    except httpx.TimeoutException:
-        raise HTTPException(504, "Gemini request timed out")
-    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
-        raise HTTPException(502, "Unexpected Gemini response")
+    # Low temperature: the same position should get the same, specific advice.
+    # A roomy token cap so the model's thinking can't crowd out the answer (only used tokens are billed).
+    advice = await _gemini_json(_position_prompt(req), temperature=0.2, max_tokens=4096)
     return {k: str(advice.get(k, "")).strip() for k in ("headline", "plan", "watch")}
 
 
