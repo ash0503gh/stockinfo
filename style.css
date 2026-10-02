@@ -887,14 +887,19 @@ footer {
 /* ── Watchlist: ledger table ────────────────────────────────────────── */
 .watchlist-grid { width: 100%; }
 .wl-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 18px; }
+/* Fixed equal-width grid: stock column + 9 data columns + remove button (widths must sum to the table width) */
 .wl-table {
-  width: 100%;
+  table-layout: fixed;
+  width: 1220px;
   border-collapse: collapse;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+.wl-table col.c-stock { width: 140px; }
+.wl-table col.c-data { width: 116px; }
+.wl-table col.c-act { width: 36px; }
 .wl-th {
-  padding: 0 14px 8px 0;
+  padding: 0 12px 8px 0;
   text-align: left;
   font-size: 9.5px;
   font-weight: 600;
@@ -913,7 +918,8 @@ footer {
 .wl-row { transition: background 0.15s ease; }
 .wl-row:hover { background: rgba(166, 124, 61, 0.05); }
 .wl-td {
-  padding: 12px 14px 11px 0;
+  padding: 12px 12px 11px 0;
+  overflow: hidden;
   border-bottom: 1px solid var(--rule-soft);
   vertical-align: middle;
   font-size: 13.5px;
@@ -930,14 +936,19 @@ footer {
 }
 .wl-td-ticker a {
   display: block;
-  max-width: 190px;
   overflow: hidden;
   text-overflow: ellipsis;
   font: 500 17px/1.25 var(--serif);
   color: var(--ink);
+  padding-bottom: 3px; /* room for the underline: overflow:hidden (for ellipsis) would clip it */
+  text-decoration: underline;
+  text-decoration-color: rgba(166, 124, 61, 0.55);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
   cursor: pointer;
+  transition: text-decoration-color 0.15s ease;
 }
-.wl-td-ticker a:hover { text-decoration: underline; text-decoration-color: var(--brass); text-underline-offset: 3px; }
+.wl-td-ticker a:hover { text-decoration-color: var(--brass); }
 .wl-view { font: italic 500 15px var(--serif); }
 .wl-th-q { display: block; margin-top: 2px; font-size: 9px; letter-spacing: 0.1em; color: var(--faint); }
 .wl-pat-q { margin-left: 5px; font-size: 10.5px; color: var(--faint); }
@@ -947,8 +958,8 @@ footer {
 .wl-stage-2 { color: var(--forest); }
 .wl-stage-3 { color: var(--brass); }
 .wl-stage-4 { color: var(--oxblood); }
-.wl-ema-price { font-size: 13px; color: var(--ink); }
-.wl-ema-pct { font-size: 11px; margin-left: 5px; }
+.wl-ema-price { font-size: 12px; color: var(--ink); }
+.wl-ema-pct { font-size: 9px; margin-left: 3px; }
 .wl-td-actions { text-align: center; padding-right: 0; }
 .wl-remove-btn {
   background: none;
@@ -989,9 +1000,13 @@ footer {
   .pos-go { grid-column: 1 / -1; }
   .pos-now .v { font-size: 24px; }
   .timeframe-row { gap: 14px; }
-  .wl-td-ticker a { max-width: 124px; }
+  .wl-table { width: 1138px; }
+  .wl-table col.c-stock { width: 116px; }
+  .wl-table col.c-data { width: 110px; }
+  .wl-table col.c-act { width: 32px; }
   .wl-td-ticker a { font-size: 16px; }
-  .wl-th, .wl-td { padding-right: 10px; }
+  .wl-th, .wl-td { padding-right: 8px; }
+  .wl-stage-badge { font-size: 13px; }
   footer { font-size: 12px; }
 }
 

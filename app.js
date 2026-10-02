@@ -1103,6 +1103,7 @@ async function runPositionAi() {
   const btn = el("posAiBtn");
   const out = el("posAiOut");
   const s = state.stageData;
+  const f = state.fundamentals || {};
   btn.disabled = true;
   btn.textContent = "Asking AI…";
   out.innerHTML = "";
@@ -1115,6 +1116,11 @@ async function runPositionAi() {
         purchasePrice: cost, shares: qty,
         stage: s.stage, stageLabel: s.stageLabel, support: s.support, resistance: s.resistance,
         signal: state.analysis ? state.analysis.signal : s.signal,
+        oneYearReturn: state._stats.yrReturn ?? undefined,
+        pe: f.trailingPE ?? undefined,
+        revenueYoY: f.revenueYoY ?? undefined,
+        profitYoY: f.profitYoY ?? undefined,
+        latestQuarter: f.latestQuarterEnd ? fmtQuarter(f.latestQuarterEnd, true) : undefined,
       }),
     });
     if (!res.ok) throw new Error(res.status === 503 ? "AI advice isn't available right now." : "Couldn't get AI advice. Please try again.");
@@ -2034,7 +2040,7 @@ function renderWatchlistTable() {
     { key: "price", label: "Price", num: true },
     { key: "patYoY", label: "PAT YoY", num: true, tag: qTag },
     { key: "patQoQ", label: "PAT QoQ", num: true, tag: qTag },
-    { key: "stage", label: "Stage" },
+    { key: "stage", label: "Stage", num: true },
     { key: "ema10", label: "10W EMA", num: true },
     { key: "ema20", label: "20W EMA", num: true },
     { key: "ema40", label: "40W EMA", num: true },
@@ -2065,7 +2071,7 @@ function renderWatchlistTable() {
         <td class="wl-td num">${sym}${fmt(item.lastClose)}</td>
         ${patCell(item, item.patYoY, item.patYoY != null)}
         ${patCell(item, item.patQoQ, item.patYoY == null)}
-        <td class="wl-td"><span class="wl-stage-badge wl-stage-${item.stage || 1}">${ROMAN[item.stage] || "—"} · ${escapeHtml(item.stageLabel || "—")}</span></td>
+        <td class="wl-td num"><span class="wl-stage-badge wl-stage-${item.stage || 1}">${ROMAN[item.stage] || "—"} · ${escapeHtml(item.stageLabel || "—")}</span></td>
         <td class="wl-td wl-td-ema num">${fmtEma(item.ema10 || 0, item.ema10Pct || 0, sym)}</td>
         <td class="wl-td wl-td-ema num">${fmtEma(item.ema20 || 0, item.ema20Pct || 0, sym)}</td>
         <td class="wl-td wl-td-ema num">${fmtEma(item.ema40 || 0, item.ema40Pct || 0, sym)}</td>
@@ -2080,6 +2086,7 @@ function renderWatchlistTable() {
   grid.innerHTML = `
     <div class="wl-table-wrap">
       <table class="wl-table">
+        <colgroup><col class="c-stock">${'<col class="c-data">'.repeat(cols.length - 1)}<col class="c-act"></colgroup>
         <thead><tr>${headerHtml}</tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>

@@ -887,6 +887,60 @@ class PositionAdviceRequest(BaseModel):
     support: Optional[float] = None
     resistance: Optional[float] = None
     signal: Optional[str] = None
+    oneYearReturn: Optional[float] = None
+    pe: Optional[float] = None
+    revenueYoY: Optional[float] = None
+    profitYoY: Optional[float] = None
+    latestQuarter: Optional[str] = None
+
+
+def _position_prompt(req: PositionAdviceRequest) -> str:
+    cur = req.currency
+    cost, price, qty = req.purchasePrice, req.currentPrice, req.shares
+    money = lambda v: f"{cur} {v:+,.0f}"
+    pnl_pct = (price - cost) / cost * 100
+    lines = [
+        f"Holding: {qty:g} shares of {req.ticker} at an average cost of {cur} {cost:,.2f}. "
+        f"Current price {cur} {price:,.2f}: {pnl_pct:+.1f}% ({money((price - cost) * qty)} in total)."
+    ]
+    trend = []
+    if req.stage:
+        trend.append(f"Stage {req.stage} ({req.stageLabel})")
+    if req.signal:
+        trend.append(f"technical signal {req.signal}")
+    if req.oneYearReturn is not None:
+        trend.append(f"1-year return {req.oneYearReturn:+.1f}%")
+    if trend:
+        lines.append("Trend: " + "; ".join(trend) + ".")
+    if req.support is not None and req.resistance is not None:
+        # Same exit level the app shows the user (safety exit just under the floor in an uptrend).
+        exit_at = req.support * 0.98 if req.stage == 2 else req.support
+        lines.append(
+            f"Levels: ceiling (resistance) {cur} {req.resistance:,.2f} = {money((req.resistance - cost) * qty)} for them if reached; "
+            f"exit level {cur} {exit_at:,.2f} = {money((exit_at - cost) * qty)} if hit; floor (support) {cur} {req.support:,.2f}."
+        )
+    fund = []
+    if req.pe is not None:
+        fund.append(f"P/E {req.pe:.1f}")
+    if req.latestQuarter and (req.profitYoY is not None or req.revenueYoY is not None):
+        q = []
+        if req.profitYoY is not None:
+            q.append(f"net profit {req.profitYoY:+.1f}%")
+        if req.revenueYoY is not None:
+            q.append(f"revenue {req.revenueYoY:+.1f}%")
+        fund.append(f"latest quarter ({req.latestQuarter}) vs a year ago: {', '.join(q)}")
+    if fund:
+        lines.append("Fundamentals: " + "; ".join(fund) + ".")
+
+    facts = "\n".join(lines)
+    return f"""You are a precise, practical advisor for everyday retail investors. Give this person a concrete plan for shares they already own. Use their exact numbers and the price levels below; no generic advice, no jargon, no disclaimers. Return ONLY valid JSON (no markdown, no backticks).
+
+{facts}
+
+Rules: choose ONE main action (hold, add, trim or exit) and justify it with these numbers. Name exact prices for adding, trimming or exiting, and the money it means for them. Stay consistent with the trend and levels given.
+
+Return this exact JSON schema:
+{{"headline": "<6-10 words naming the action>", "plan": "<2-3 sentences with exact prices and amounts>", "watch": "<1 sentence: the single price that changes the plan, and what to do then>"}}"""
 
 
 @app.post("/api/position-advice")
@@ -894,28 +948,10 @@ async def position_advice(req: PositionAdviceRequest):
     if not GEMINI_API_KEY:
         raise HTTPException(503, "Gemini API key not configured")
 
-    cur = req.currency
-    pnl_pct = (req.currentPrice - req.purchasePrice) / req.purchasePrice * 100
-    pnl_total = (req.currentPrice - req.purchasePrice) * req.shares
-    levels = []
-    if req.support is not None:
-        levels.append(f"price floor (support) {cur} {req.support:.2f}")
-    if req.resistance is not None:
-        levels.append(f"price ceiling (resistance) {cur} {req.resistance:.2f}")
-    stage = f"Stage {req.stage} ({req.stageLabel})" if req.stage else "unknown"
-
-    prompt = f"""You are a clear, careful advisor for everyday retail investors. Write a short personal plan for this holding in simple English with no jargon. Return ONLY valid JSON (no markdown, no backticks).
-
-Holding: {req.shares:g} shares of {req.ticker}, average cost {cur} {req.purchasePrice:.2f}.
-Current price: {cur} {req.currentPrice:.2f} ({pnl_pct:+.1f}% vs their cost; total {'profit' if pnl_total >= 0 else 'loss'} {cur} {abs(pnl_total):,.0f}).
-Market stage: {stage}. Key levels: {', '.join(levels) or 'unknown'}. Technical signal: {req.signal or 'unknown'}.
-
-Return this exact JSON schema:
-{{"headline": "<6-10 words>", "plan": "<2-3 sentences: whether to hold, add or sell, using their cost and the key levels>", "watch": "<1 sentence: the one price that should change their plan>"}}"""
-
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1024, "responseMimeType": "application/json"},
+        "contents": [{"parts": [{"text": _position_prompt(req)}]}],
+        # Low temperature: the same position should get the same, specific advice.
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024, "responseMimeType": "application/json"},
     }
     try:
         async with httpx.AsyncClient() as client:
